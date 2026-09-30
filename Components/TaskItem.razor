@@ -14,6 +14,10 @@
                     <span style="font-size: 0.7rem">@GetProgressPercent() %</span>
                 </ChildContent>
             </MudProgressCircular>
+            <MudSpacer />
+            <div @onclick:stopPropagation="true">
+                <MudIconButton OnClick="() => OnDelete.InvokeAsync(Task)" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Variant="Variant.Filled"></MudIconButton>
+            </div>
         </div>
     </TitleContent>
     <ChildContent>
@@ -29,7 +33,7 @@
                 <MudExpansionPanels MultiExpansion="true" Class="mt-2">
                     @foreach (var subTask in Task.SubTasks)
                     {
-                        <TaskItem Task="subTask" OnTreeChanged="OnTreeChanged" />
+                        <TaskItem Task="subTask" OnTreeChanged="OnTreeChanged" OnDelete="DeleteSubTask" />
                     }
                 </MudExpansionPanels>
             }
@@ -44,6 +48,9 @@
     [Parameter]
     public EventCallback OnTreeChanged { get; set; }
 
+    [Parameter]
+    public EventCallback<ProjectTask> OnDelete { get; set; }
+
     private string? newSubTaskTitle;
 
     private void TaskKeyDown(KeyboardEventArgs e)
@@ -52,6 +59,12 @@
         {
             AddSubTask();
         }
+    }
+
+    private async Task DeleteSubTask(ProjectTask child)
+    {
+        Task.SubTasks.Remove(child);
+        await OnTreeChanged.InvokeAsync();
     }
 
     private async Task AddSubTask()
