@@ -1,0 +1,209 @@
+﻿@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>CIHA Project Tracker</PageTitle>
+
+<h3>CIHA Project Tracker</h3>
+
+<MudStack Row="true" AlignItems="AlignItems.Center">
+    <MudTextField Margin="Margin.Dense" Label="Task Title" @bind-Value="newProject" Variant="Variant.Outlined" Immediate="true" OnKeyDown="ProjKeyDown" />
+    <MudButton OnClick="AddProject" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary">Add Project</MudButton>
+</MudStack>
+
+<MudExpansionPanels MultiExpansion="true">
+    @foreach (var project in projects)
+    {
+        <MudExpansionPanel>
+            <TitleContent>
+                <div class="d-flex align-center w-100">
+                    <div @onclick:stopPropagation="true">
+                        <MudCheckBox @bind-Value="project.IsCompleted" @bind-Value:after="() => ProjectChecked(project)"
+                            Color="Color.Primary" />
+                    </div>
+                    <div @onclick:stopPropagation="true">
+                        <MudTextField Margin="Margin.Dense" @bind-Value="project.Title" />
+                    </div>
+                    <MudProgressCircular Rounded="true" Value=@GetProjectProgressPercent(project) 
+                        Color=@GetProgressColor(GetProjectProgressPercent(project))>
+                        <ChildContent>
+                            <span style="font-size: 0.7rem">@GetProjectProgressPercent(project) %</span>
+                        </ChildContent>
+                    </MudProgressCircular>
+                </div>
+            </TitleContent>
+            <ChildContent>
+                <div class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudTextField Margin="Margin.Dense" Label="Task Title" @bind-Value="newTask" Variant="Variant.Outlined" Immediate="true"
+                            OnKeyDown="@(e => TaskKeyDown(e, project))"/>
+                        <MudButton OnClick="() => AddTask(project)" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary">Add Task</MudButton>
+                    </MudStack>
+                    
+                    <MudExpansionPanels MultiExpansion="true" Class="mt-3">
+                        @foreach (var task in project.Tasks)
+                        {
+                            <TaskItem Task="task" OnTreeChanged="RecomputeAllProjects" />
+                        }
+                    </MudExpansionPanels>
+                </div>
+            </ChildContent>
+        </MudExpansionPanel>
+    }
+</MudExpansionPanels>
+
+    @code {
+    private string? newProject;
+    private string? newTask;
+
+    private List<ProjectItem> projects = [];
+
+    private void ProjKeyDown(KeyboardEventArgs e)
+    {
+        if(e.Key == "Enter" || e.Key == "NumpadEnter")
+        {
+            AddProject();
+        }
+    }
+
+    private void TaskKeyDown(KeyboardEventArgs e, ProjectItem project)
+    {
+        if (e.Key == "Enter" || e.Key == "NumpadEnter")
+        {
+            AddTask(project);
+        }
+    }
+
+    private void AddProject()
+    {
+        if (!string.IsNullOrWhiteSpace(newProject))
+        {
+            projects.Add(new ProjectItem { Title = newProject });
+            newProject = string.Empty;
+        }
+    }
+
+    private void AddTask(ProjectItem project)
+    {
+        if (!string.IsNullOrWhiteSpace(newTask))
+        {
+            project.Tasks.Add(new ProjectTask { Title = newTask });
+            newTask = string.Empty;
+            RecomputeAllProjects();
+        }
+    }
+
+    private void ProjectChecked(ProjectItem project)
+    {
+        foreach (var task in project.Tasks)
+        {
+            task.IsCompleted = project.IsCompleted;
+            CascadeCompleted(task, project.IsCompleted);
+        }
+    }
+
+    private void RecomputeAllProjects()
+    {
+        foreach (var project in projects)
+        {
+            RecomputeProject(project);
+        }
+    }
+
+    private static void CascadeCompleted(ProjectTask task, bool value)
+    {
+        foreach (var sub in task.SubTasks)
+        {
+            sub.IsCompleted = value;
+            CascadeCompleted(sub, value);
+        }
+    }
+
+    private static bool RecomputeTaskStatus(ProjectTask task)
+    {
+        if (task.SubTasks.Count == 0)
+        {
+            return task.IsCompleted;
+        }
+
+        bool allChildrenComplete = true;
+        foreach (var sub in task.SubTasks)
+        {
+            if (!RecomputeTaskStatus(sub))
+            {
+                allChildrenComplete = false;
+            }
+        }
+
+        task.IsCompleted = allChildrenComplete;
+        return allChildrenComplete;
+    }
+
+    private static void RecomputeProject(ProjectItem project)
+    {
+        if (project.Tasks.Count == 0)
+        {
+            return;
+        }
+
+        bool allComplete = true;
+        foreach (var task in project.Tasks)
+        {
+            if (!RecomputeTaskStatus(task))
+            {
+                allComplete = false;
+            }
+        }
+
+        project.IsCompleted = allComplete;
+    }
+
+    private static (int completed, int total) CountCompletion(ProjectTask task)
+    {
+        if (task.SubTasks.Count == 0)
+        {
+            return (task.IsCompleted ? 1 : 0, 1);
+        }
+
+        int completed = 0;
+        int total = 0;
+
+        foreach (var sub in task.SubTasks)
+        {
+            var (subCompleted, subTotal) = CountCompletion(sub);
+            completed += subCompleted;
+            total += subTotal;
+        }
+
+        return (completed, total);
+    }
+
+    private static int GetProjectProgressPercent(ProjectItem project)
+    {
+        if(project.Tasks.Count == 0)
+        {
+            return project.IsCompleted ? 100 : 0;
+        }
+
+        int completed = 0;
+        int total = 0;
+
+        foreach (var task in project.Tasks)
+        {
+            var (c, t) = CountCompletion(task);
+            completed += c;
+            total += t;
+        }
+
+        return total == 0 ? 0 : (int)Math.Round(100.0 * completed / total);
+    }
+
+    private Color GetProgressColor(int currentVal)
+    {
+        return currentVal switch
+        {
+            < 30 => Color.Error,
+            < 70 => Color.Warning,
+            _ => Color.Success
+        };
+    }
+}

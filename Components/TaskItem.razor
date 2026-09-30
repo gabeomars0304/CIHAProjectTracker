@@ -1,0 +1,117 @@
+﻿<MudExpansionPanel>
+    <TitleContent>
+        <div class="d-flex align-center w-100">
+            <div @onclick:stopPropagation="true">
+                <MudCheckBox @bind-Value="Task.IsCompleted" @bind-Value:after="OnCheckedChanged"
+                    Color="Color.Primary" />
+            </div>
+            <div @onclick:stopPropagation="true">
+                <MudTextField Margin="Margin.Dense" @bind-Value="Task.Title" />
+            </div>
+            <MudProgressCircular Rounded="true" Value=@GetProgressPercent() 
+                Color=@GetProgressColor(GetProgressPercent())>
+                <ChildContent>
+                    <span style="font-size: 0.7rem">@GetProgressPercent() %</span>
+                </ChildContent>
+            </MudProgressCircular>
+        </div>
+    </TitleContent>
+    <ChildContent>
+        <div class="pa-4">
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudTextField Margin="Margin.Dense" Label="Task Title" @bind-Value="newSubTaskTitle" Variant="Variant.Outlined" Immediate="true"
+                        OnKeyDown="TaskKeyDown" />
+                    <MudButton OnClick="AddSubTask" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary">Add Task</MudButton>
+            </MudStack>
+
+            @if (Task.SubTasks.Count > 0)
+            {
+                <MudExpansionPanels MultiExpansion="true" Class="mt-2">
+                    @foreach (var subTask in Task.SubTasks)
+                    {
+                        <TaskItem Task="subTask" OnTreeChanged="OnTreeChanged" />
+                    }
+                </MudExpansionPanels>
+            }
+        </div>
+    </ChildContent>
+</MudExpansionPanel>
+
+@code {
+    [Parameter, EditorRequired]
+    public ProjectTask Task { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback OnTreeChanged { get; set; }
+
+    private string? newSubTaskTitle;
+
+    private void TaskKeyDown(KeyboardEventArgs e)
+    {
+        if(e.Key == "Enter" || e.Key == "NumpadEnter")
+        {
+            AddSubTask();
+        }
+    }
+
+    private async Task AddSubTask()
+    {
+        if (!string.IsNullOrWhiteSpace(newSubTaskTitle))
+        {
+            Task.SubTasks.Add(new ProjectTask { Title = newSubTaskTitle, ParentId = Task.Id });
+            newSubTaskTitle = string.Empty;
+            await OnTreeChanged.InvokeAsync();
+        }
+    }
+
+    private async Task OnCheckedChanged()
+    {
+        CascadeCompleted(Task, Task.IsCompleted);
+        await OnTreeChanged.InvokeAsync();
+    }
+
+    private static void CascadeCompleted(ProjectTask task, bool value)
+    {
+        foreach (var sub in task.SubTasks)
+        {
+            sub.IsCompleted = value;
+            CascadeCompleted(sub, value);
+        }
+    }
+
+    private int GetProgressPercent()
+    {
+        var (completed, total) = CountCompletion(Task);
+        return total == 0 ? 0 : (int)Math.Round(100.0 * completed / total);
+    }
+
+    private static (int completed, int total) CountCompletion(ProjectTask task)
+    {
+        if (task.SubTasks.Count == 0)
+        {
+            return (task.IsCompleted ? 1 : 0, 1);
+        }
+
+        int completed = 0;
+        int total = 0;
+
+        foreach (var sub in task.SubTasks)
+        {
+            var (subCompleted, subTotal) = CountCompletion(sub);
+            completed += subCompleted;
+            total += subTotal;
+        }
+
+        return (completed, total);
+    }
+
+    private Color GetProgressColor(int currentVal)
+    {
+        return currentVal switch
+        {
+            < 30 => Color.Error,
+            < 70 => Color.Warning,
+            _ => Color.Success
+        };
+    }
+}
