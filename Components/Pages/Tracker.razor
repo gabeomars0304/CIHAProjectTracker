@@ -29,6 +29,10 @@
                             <span style="font-size: 0.7rem">@GetProjectProgressPercent(project) %</span>
                         </ChildContent>
                     </MudProgressCircular>
+                    <MudSpacer />
+                    <div @onclick:stopPropagation="true">
+                        <MudIconButton OnClick="() => DeleteProject(project)" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Variant="Variant.Filled"></MudIconButton>
+                    </div>
                 </div>
             </TitleContent>
             <ChildContent>
@@ -42,7 +46,7 @@
                     <MudExpansionPanels MultiExpansion="true" Class="mt-3">
                         @foreach (var task in project.Tasks)
                         {
-                            <TaskItem Task="task" OnTreeChanged="RecomputeAllProjects" />
+                            <TaskItem Task="task" OnTreeChanged="RecomputeAllProjects" OnDelete="@(t => DeleteRoot(project, t))" />
                         }
                     </MudExpansionPanels>
                 </div>
@@ -56,6 +60,17 @@
     private string? newTask;
 
     private List<ProjectItem> projects = [];
+
+    private async Task DeleteRoot(ProjectItem project, ProjectTask task)
+    {
+        project.Tasks.Remove(task);
+        RecomputeAllProjects();
+    }
+
+    private void DeleteProject(ProjectItem project)
+    {
+        projects.Remove(project);
+    }
 
     private void ProjKeyDown(KeyboardEventArgs e)
     {
