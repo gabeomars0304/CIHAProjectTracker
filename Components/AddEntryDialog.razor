@@ -1,0 +1,39 @@
+﻿<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
+                          Immediate="true" AutoFocus="true" OnKeyDown="KeyDown" />
+            <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
+                           Variant="Variant.Outlined" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton OnClick="Submit" Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@string.IsNullOrWhiteSpace(title)">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    public sealed record EntryResult(string Title, DateTime? StartDate);
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string Label { get; set; } = "Title";
+
+    private string? title;
+    private DateTime? startDate = DateTime.Today;
+
+    private void KeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter")
+            Submit();
+    }
+
+    private void Submit()
+    {
+        if (string.IsNullOrWhiteSpace(title)) return;
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate)));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

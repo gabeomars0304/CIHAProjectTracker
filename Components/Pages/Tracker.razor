@@ -1,160 +1,181 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@inject IDialogService DialogService
 
 <PageTitle>CIHA Item Tracker</PageTitle>
 
 <h3>CIHA Item Tracker</h3>
 
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudTextField Label="Item Title" @bind-Value="newItem" Variant="Variant.Outlined" Immediate="true" OnKeyDown="ProjKeyDown" />
-    <MudDatePicker Label="Start Date" @bind-Date="IstartDate" Editable="true" />
-    <MudButton OnClick="AddItem" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary">Add Item</MudButton>
-</MudStack>
+<MudToolBar Dense="true" Class="mb-2">
+    <MudButton OnClick="AddItem" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add"
+               Color="Color.Primary">Add Item</MudButton>
+</MudToolBar>
 
-<MudTable T="TableRow" Items="@BuildRows().ToList()" Dense="true" Hover="true" Breakpoint="Breakpoint.None"
-          RowClass="@null" RowStyleFunc="RowStyle">
-    <HeaderContent>
-        <MudTh Style="min-width:380px">Title</MudTh>
-        <MudTh>Start Date</MudTh>
-        <MudTh>End Date</MudTh>
-        <MudTh>Progress</MudTh>
-        <MudTh></MudTh>
-    </HeaderContent>
+<MudDataGrid T="GridRow" Items="rows" Dense="true" Hover="true"
+             Breakpoint="Breakpoint.None" RowStyleFunc="RowStyle"
+             SortMode="SortMode.None" Filterable="false">
+    <Columns>
+        <TemplateColumn Title="Title" Sortable="false" Filterable="false" CellStyle="min-width:380px">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                }
+                @if (row.Kind == RowKind.Item)
+                {
+                    var item = row.Root;
+                    <div class="d-flex align-center">
+                        <MudIconButton Icon="@ExpandIcon(item)" Size="Size.Small" OnClick="() => Toggle(item)" />
+                        <MudCheckBox @bind-Value="item.IsCompleted" @bind-Value:after="() => ItemChecked(item)" Color="Color.Primary" />
+                        <MudTextField @bind-Value="item.Title" Immediate="true" Margin="Margin.Dense" />
+                    </div>
+                }
+                else
+                {
+                    var task = row.Task!;
+                    <div class="d-flex align-center" style="padding-left:@(row.Depth * 28)px">
+                        <MudIconButton Icon="@ExpandIcon(task)" Size="Size.Small" OnClick="() => Toggle(task)" />
+                        <MudCheckBox @bind-Value="task.IsCompleted" @bind-Value:after="() => TaskChecked(task)" Color="Color.Primary" />
+                        <MudTextField @bind-Value="task.Title" Immediate="true" Margin="Margin.Dense" />
+                    </div>
+                }
+            </CellTemplate>
+        </TemplateColumn>
 
-    <RowTemplate Context="row">
-        @if (row.Kind == RowKind.Item)
-        {
-            var item = row.Root;
-            <MudTd>
-                <div class="d-flex align-center">
-                    <MudIconButton Icon="@ExpandIcon(item)" Size="Size.Small" OnClick="() => Toggle(item)" />
-                    <MudCheckBox @bind-Value="item.IsCompleted" @bind-Value:after="() => ItemChecked(item)" Color="Color.Primary" />
-                    <MudTextField @bind-Value="item.Title" Immediate="true" Margin="Margin.Dense" />
-                </div>
-            </MudTd>
-            <MudTd><MudDatePicker @bind-Date="item.StartDate" Editable="true" Margin="Margin.Dense" /></MudTd>
-            <MudTd>
-                <MudDatePicker @bind-Date="item.EndDate" Editable="true" Margin="Margin.Dense"
-                               @bind-Date:after="() => ItemEndDateChanged(item)" />
-            </MudTd>
-            <MudTd>@ProgressCircle(GetItemProgressPercent(item))</MudTd>
-            <MudTd>
-                <MudIconButton OnClick="() => DeleteItem(item)" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" />
-            </MudTd>
-        }
-        else if (row.Kind == RowKind.Task)
-        {
-            var task = row.Task!;
-            <MudTd>
-                <div class="d-flex align-center" style="padding-left:@(row.Depth * 28)px">
-                    <MudIconButton Icon="@ExpandIcon(task)" Size="Size.Small" OnClick="() => Toggle(task)" />
-                    <MudCheckBox @bind-Value="task.IsCompleted" @bind-Value:after="() => TaskChecked(task)" Color="Color.Primary" />
-                    <MudTextField @bind-Value="task.Title" Immediate="true" Margin="Margin.Dense" />
-                </div>
-            </MudTd>
-            <MudTd><MudDatePicker @bind-Date="task.StartDate" Editable="true" Margin="Margin.Dense" /></MudTd>
-            <MudTd>
-                <MudDatePicker @bind-Date="task.EndDate" Editable="true" Margin="Margin.Dense"
-                               @bind-Date:after="() => TaskEndDateChanged(task)" />
-            </MudTd>
-            <MudTd>@ProgressCircle(GetTaskProgressPercent(task))</MudTd>
-            <MudTd>
-                <MudIconButton OnClick="() => DeleteTask(row)" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" />
-            </MudTd>
-        }
-        else // RowKind.Add
-        {
-            var entry = GetEntry(row.Owner);
-            <MudTd>
-                <div class="d-flex align-center" style="padding-left:@(row.Depth * 28 + 40)px">
-                    <MudTextField Label="@(row.Owner is TrackedItem ? "New task" : "New subtask")"
-                                  @bind-Value="entry.Title" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
-                                  OnKeyDown="@(e => AddKeyDown(e, row.Owner))" />
-                </div>
-            </MudTd>
-            <MudTd><MudDatePicker Label="Start Date" @bind-Date="entry.StartDate" Editable="true" Margin="Margin.Dense" /></MudTd>
-            <MudTd></MudTd>
-            <MudTd></MudTd>
-            <MudTd>
-                <MudButton OnClick="() => AddChild(row.Owner)" Variant="Variant.Filled" Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary">Add</MudButton>
-            </MudTd>
-        }
-    </RowTemplate>
-</MudTable>
+        <TemplateColumn Title="Start Date" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                }
+                @if (row.Kind == RowKind.Item)
+                {
+                    <MudDatePicker @bind-Date="row.Root.StartDate" Editable="true" Margin="Margin.Dense" />
+                }
+                else
+                {
+                    <MudDatePicker @bind-Date="row.Task!.StartDate" Editable="true" Margin="Margin.Dense" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="End Date" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                }
+                @if (row.Kind == RowKind.Item)
+                {
+                    var item = row.Root;
+                    <MudDatePicker @bind-Date="item.EndDate" Editable="true" Margin="Margin.Dense"
+                                   @bind-Date:after="() => ItemEndDateChanged(item)" />
+                }
+                else
+                {
+                    var task = row.Task!;
+                    <MudDatePicker @bind-Date="task.EndDate" Editable="true" Margin="Margin.Dense"
+                                   @bind-Date:after="() => TaskEndDateChanged(task)" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="Progress" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                }
+                @if (row.Kind == RowKind.Item)
+                {
+                    @ProgressCircle(GetItemProgressPercent(row.Root))
+                }
+                else
+                {
+                    @ProgressCircle(GetTaskProgressPercent(row.Task!))
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="min-width:120px">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                }
+                <MudToolBar Dense="true" Class="pa-0" Style="min-height:unset; background:transparent;">
+                    <MudTooltip Text="@(row.Kind == RowKind.Item ? "Add task" : "Add subtask")">
+                        <MudIconButton Icon="@Icons.Material.Filled.PlaylistAdd" Color="Color.Primary" Size="Size.Small"
+                                       OnClick="() => AddChild(row.Owner)" />
+                    </MudTooltip>
+                    <MudTooltip Text="Delete">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                       OnClick="() => DeleteRow(row)" />
+                    </MudTooltip>
+                </MudToolBar>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+</MudDataGrid>
 
 @code {
     // ---------- row model ----------
-    private enum RowKind { Item, Task, Add }
-
-    // Owner: the item/task the row represents (Item/Task rows) or the parent a new child will be added to (Add rows)
-    private sealed record TableRow(RowKind Kind, int Depth, TrackedItem Root, ItemTask? Parent, ItemTask? Task, object Owner);
-
-    private sealed class NewEntry
+    private enum RowKind { Item, Task }
+    // Owner: the item/task the row represents (Item/Task rows) or the parent a new child is added to (Add rows)
+    private sealed class GridRow
     {
-        public string? Title { get; set; }
-        public DateTime? StartDate { get; set; } = DateTime.Today;
+        public RowKind Kind { get; init; }
+        public int Depth { get; init; }
+        public TrackedItem Root { get; init; } = default!;
+        public ItemTask? Parent { get; init; }
+        public ItemTask? Task { get; init; }
+        public object Owner { get; init; } = default!;
     }
 
     // ---------- state ----------
-    private string? newItem;
-    private DateTime? IstartDate = DateTime.Today;
-
     private List<TrackedItem> items = [];
+    private List<GridRow> rows = [];
 
-    // Reference equality so expand state / entry state is per node
     private readonly HashSet<object> expanded = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<object, NewEntry> entries = new(ReferenceEqualityComparer.Instance);
-
-    private NewEntry GetEntry(object owner)
-    {
-        if (!entries.TryGetValue(owner, out var e))
-            entries[owner] = e = new NewEntry();
-        return e;
-    }
 
     // ---------- flattening ----------
-    private IEnumerable<TableRow> BuildRows()
+    // Rows are cached and only rebuilt when the structure changes (expand/collapse, add, delete),
+    // so typing in a cell doesn't cause the grid to receive a brand-new list on every keystroke.
+    private void Rebuild() => rows = BuildRows().ToList();
+
+    private IEnumerable<GridRow> BuildRows()
     {
         foreach (var item in items)
         {
-            yield return new TableRow(RowKind.Item, 0, item, null, null, item);
+            yield return new GridRow { Kind = RowKind.Item, Depth = 0, Root = item, Owner = item };
 
             if (!expanded.Contains(item)) continue;
 
             foreach (var task in item.Tasks)
                 foreach (var r in TaskRows(item, null, task, 1))
                     yield return r;
-
-            yield return new TableRow(RowKind.Add, 1, item, null, null, item);
         }
     }
 
-    private IEnumerable<TableRow> TaskRows(TrackedItem root, ItemTask? parent, ItemTask task, int depth)
+    private IEnumerable<GridRow> TaskRows(TrackedItem root, ItemTask? parent, ItemTask task, int depth)
     {
-        yield return new TableRow(RowKind.Task, depth, root, parent, task, task);
+        yield return new GridRow { Kind = RowKind.Task, Depth = depth, Root = root, Parent = parent, Task = task, Owner = task };
 
         if (!expanded.Contains(task)) yield break;
 
         foreach (var sub in task.SubTasks)
             foreach (var r in TaskRows(root, task, sub, depth + 1))
                 yield return r;
-
-        yield return new TableRow(RowKind.Add, depth + 1, root, parent, null, task);
     }
 
     private void Toggle(object node)
     {
         if (!expanded.Remove(node))
             expanded.Add(node);
+        Rebuild();
     }
 
     private string ExpandIcon(object node) =>
         expanded.Contains(node) ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight;
 
-    private string? RowStyle(TableRow row, int index) =>
-        row.Kind == RowKind.Item ? "background: var(--mud-palette-background-gray); font-weight: 500;" : null;
+    private string RowStyle(GridRow row, int index) =>
+        row.Kind == RowKind.Item ? "background: var(--mud-palette-background-gray); font-weight: 500;" : "";
 
+    // ---------- progress ----------
     private RenderFragment ProgressCircle(int percent) => __builder =>
     {
         <MudProgressCircular Rounded="true" Value="percent" Color="GetProgressColor(percent)">
@@ -207,53 +228,15 @@
         return total == 0 ? 0 : (int)Math.Round(100.0 * completed / total);
     }
 
-    private void ProjKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" || e.Key == "NumpadEnter")
-            AddItem();
-    }
-
-    private void AddKeyDown(KeyboardEventArgs e, object owner)
-    {
-        if (e.Key == "Enter" || e.Key == "NumpadEnter")
-            AddChild(owner);
-    }
-
-    private void AddItem()
-    {
-        if (string.IsNullOrWhiteSpace(newItem)) return;
-
-        items.Add(new TrackedItem { Title = newItem, StartDate = IstartDate });
-        newItem = string.Empty;
-        IstartDate = DateTime.Today;
-    }
-
-    private void AddChild(object owner)
-    {
-        var entry = GetEntry(owner);
-        if (string.IsNullOrWhiteSpace(entry.Title)) return;
-
-        switch (owner)
-        {
-            case TrackedItem item:
-                item.Tasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
-                break;
-            case ItemTask parent:
-                parent.SubTasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate, ParentId = parent.Id });
-                break;
-        }
-
-        entry.Title = string.Empty;
-        entry.StartDate = DateTime.Today;
-        RecomputeAllItems();
-    }
+    // ---------- add / delete ----------
 
     private void DeleteItem(TrackedItem item)
     {
         items.Remove(item);
+        Rebuild();
     }
 
-    private void DeleteTask(TableRow row)
+    private void DeleteTask(GridRow row)
     {
         if (row.Task is null) return;
 
@@ -263,8 +246,10 @@
             row.Parent.SubTasks.Remove(row.Task);
 
         RecomputeAllItems();
+        Rebuild();
     }
 
+    // ---------- completion / dates ----------
     private void ItemChecked(TrackedItem item)
     {
         if (item.IsCompleted)
@@ -359,5 +344,55 @@
             else
                 item.EndDate = null;
         }
+    }
+
+    private void DeleteRow(GridRow row)
+    {
+        if (row.Kind == RowKind.Item)
+            DeleteItem(row.Root);
+        else
+            DeleteTask(row);
+    }
+
+    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label)
+    {
+        var parameters = new DialogParameters<AddEntryDialog> { { x => x.Label, label } };
+        var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
+
+        var dialog = await DialogService.ShowAsync<AddEntryDialog>(heading, parameters, options);
+        var result = await dialog.Result;
+
+        return result?.Canceled == false ? result.Data as AddEntryDialog.EntryResult : null;
+    }
+
+    private async Task AddItem()
+    {
+        var entry = await PromptAsync("Add item", "Item title");
+        if (entry is null) return;
+
+        items.Add(new TrackedItem { Title = entry.Title, StartDate = entry.StartDate });
+        Rebuild();
+    }
+
+    private async Task AddChild(object owner)
+    {
+        var isItem = owner is TrackedItem;
+        var entry = await PromptAsync(isItem ? "Add task" : "Add subtask",
+                                      isItem ? "Task title" : "Subtask title");
+        if (entry is null) return;
+
+        switch (owner)
+        {
+            case TrackedItem item:
+                item.Tasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
+                break;
+            case ItemTask parent:
+                parent.SubTasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate, ParentId = parent.Id });
+                break;
+        }
+
+        expanded.Add(owner);   // make sure the new child is visible
+        RecomputeAllItems();
+        Rebuild();
     }
 }
