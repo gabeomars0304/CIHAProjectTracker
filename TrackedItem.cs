@@ -6,9 +6,9 @@
 
     public string Description { get; set; } = string.Empty;
 
-    public DateTime? StartDate { get; set; } = DateTime.Now;
+    public DateTime? StartDate { get; set; } = DateTime.Today;
 
-    public DateTime? EndDate { get; set; } = DateTime.Now;
+    public DateTime? EndDate { get; set; } = null;
 
     public string Status { get; set; } = String.Empty;
 
