@@ -1,4 +1,4 @@
-﻿public class ProjectItem
+﻿public class TrackedItem
 {
     public int Id { get; set; }
 
@@ -6,15 +6,19 @@
 
     public string Description { get; set; } = string.Empty;
 
-    public DateOnly StartDate { get; set; } = DateOnly.FromDateTime(DateTime.Now);
+    public DateTime? StartDate { get; set; } = DateTime.Now;
 
-    public DateOnly EndDate { get; set; } = DateOnly.FromDateTime(DateTime.Now);
+    public DateTime? EndDate { get; set; } = DateTime.Now;
 
     public string Status { get; set; } = String.Empty;
 
     public bool IsCompleted { get; set; } = false;
 
-    public List<ProjectTask> Tasks { get; set; } = [];
+    public List<ItemTask> Tasks { get; set; } = [];
+
+    public List<string> Notes { get; set; } = [];
+
+    public List<ItemTag> Tags { get; set; } = [];
 
     public int PercentageComplete { get; set; } = 0;
 }
