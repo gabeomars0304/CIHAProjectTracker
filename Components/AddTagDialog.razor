@@ -1,0 +1,94 @@
+﻿<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.subtitle2">Select tag</MudText>
+
+                @if (_allTags.Count == 0)
+                {
+                     <MudText Color="Color.Secondary">No tags yet. Create one below.</MudText>
+                }
+
+                <MudChipSet T="ItemTag"
+                        SelectionMode="SelectionMode.SingleSelection"
+                        CheckMark="true"
+                        @bind-SelectedValue="_selectedTag">
+                @foreach (var tag in _allTags)
+                {
+                    <MudChip @key="tag" T="ItemTag" Value="tag" Text="@tag.Name"
+                            Color="@TagColors.For(tag)"
+                            Variant="@(_selectedTag == tag ? Variant.Filled : Variant.Outlined)" />
+                }
+            </MudChipSet>
+
+            <MudDivider />
+
+            <MudTextField Label="New tag" @bind-Value="_newName" Variant="Variant.Outlined"
+                          Immediate="true" OnKeyDown="OnKeyDown"
+                          Error="@(_error is not null)" ErrorText="@_error"
+                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Add"
+                          OnAdornmentClick="CreateTag" AdornmentAriaLabel="Create tag" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton OnClick="Submit" Color="Color.Primary" Variant="Variant.Filled">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    public sealed record TagPickerResult(List<ItemTag> Selected, List<ItemTag> Created);
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public List<ItemTag> ExistingTags { get; set; } = [];
+    [Parameter] public List<ItemTag> InitiallySelected { get; set; } = [];
+
+    private List<ItemTag> _allTags = [];
+    private readonly List<ItemTag> _created = [];
+    private string? _newName;
+    private string? _error;
+    private ItemTag? _selectedTag;
+
+    protected override void OnInitialized()
+    {
+        _allTags = [.. ExistingTags];
+        _selectedTag = _allTags.FirstOrDefault(t => InitiallySelected.Any(s => Same(s.Name, t.Name)));
+    }
+
+    private static bool Same(string a, string b) =>
+        string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter")
+            CreateTag();
+    }
+
+    private void CreateTag()
+    {
+        var name = _newName?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var existing = _allTags.FirstOrDefault(t => Same(t.Name, name));
+        if (existing is not null)
+        {
+            _selectedTag = existing;
+            _newName = null;
+            _error = null;
+            return;
+        }
+
+        var tag = new ItemTag { Name = name };
+        _allTags.Add(tag);
+        _created.Add(tag);
+        _selectedTag = tag;   // auto-select the new tag
+        _newName = null;
+        _error = null;
+    }
+
+    private void Submit() =>
+        MudDialog.Close(DialogResult.Ok(new TagPickerResult(
+            _selectedTag is null ? [] : [_selectedTag], _created)));
+
+    private void Cancel() => MudDialog.Cancel();
+}

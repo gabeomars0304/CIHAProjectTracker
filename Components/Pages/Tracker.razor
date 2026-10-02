@@ -92,12 +92,50 @@
                 }
             </CellTemplate>
         </TemplateColumn>
-        <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="min-width:120px">
+        <TemplateColumn Title="Tags" Sortable="false" Filterable="false" CellStyle="min-width:220px">
+            <CellTemplate>
+                @{
+                    var row = context.Item;
+                    var item = row.Root;
+                }
+                <div class="d-flex align-center flex-wrap" style="gap:4px">
+                    @if (row.Kind == RowKind.Item)
+                    {
+                        @foreach (var tag in item.Tags)
+                        {
+                            <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
+                                     Color="@TagColors.For(tag)"
+                                     OnClose="() => item.Tags.Remove(tag)" />
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var tag in item.Tags)
+                        {
+                            <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
+                                     Color="@TagColors.For(tag)" Variant="Variant.Text" Style="opacity:0.6" />
+                        }
+                    }
+                </div>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="min-width:140px">
             <CellTemplate>
                 @{
                     var row = context.Item;
                 }
                 <MudToolBar Dense="true" Class="pa-0" Style="min-height:unset; background:transparent;">
+                    @if(row.Kind == RowKind.Task)
+                    {
+                        <span style="display:inline-block; width:30px"></span>
+                    }
+                    @if (row.Kind == RowKind.Item)
+                    {
+                        <MudTooltip Text="Edit tags">
+                            <MudIconButton Icon="@Icons.Material.Filled.Label" Size="Size.Small"
+                                           OnClick="() => EditTags(row.Root)" />
+                        </MudTooltip>
+                    }
                     <MudTooltip Text="@(row.Kind == RowKind.Item ? "Add task" : "Add subtask")">
                         <MudIconButton Icon="@Icons.Material.Filled.PlaylistAdd" Color="Color.Primary" Size="Size.Small"
                                        OnClick="() => AddChild(row.Owner)" />
@@ -354,9 +392,14 @@
             DeleteTask(row);
     }
 
-    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label)
+    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false)
     {
-        var parameters = new DialogParameters<AddEntryDialog> { { x => x.Label, label } };
+        var parameters = new DialogParameters<AddEntryDialog>
+        {
+            { x => x.Label, label },
+            { x => x.ShowTags, showTags },
+            { x => x.KnownTags, knownTags }
+        };
         var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
 
         var dialog = await DialogService.ShowAsync<AddEntryDialog>(heading, parameters, options);
@@ -367,10 +410,11 @@
 
     private async Task AddItem()
     {
-        var entry = await PromptAsync("Add item", "Item title");
+        var entry = await PromptAsync("Add item", "Item title", showTags: true);
         if (entry is null) return;
 
-        items.Add(new TrackedItem { Title = entry.Title, StartDate = entry.StartDate });
+        RegisterTags(entry.Tags);
+        items.Add(new TrackedItem { Title = entry.Title, StartDate = entry.StartDate, Tags = entry.Tags });
         Rebuild();
     }
 
@@ -381,6 +425,7 @@
                                       isItem ? "Task title" : "Subtask title");
         if (entry is null) return;
 
+        RegisterTags(entry.Tags);
         switch (owner)
         {
             case TrackedItem item:
@@ -393,6 +438,47 @@
 
         expanded.Add(owner);   // make sure the new child is visible
         RecomputeAllItems();
+        Rebuild();
+    }
+
+    private readonly List<ItemTag> knownTags =
+    [
+        new ItemTag { Name = "Project" },
+        new ItemTag { Name = "Action Item" },
+        new ItemTag { Name = "Project On Hold" }
+    ];
+
+    // Adds any newly created tags to the catalog (by name, case-insensitive)
+    private void RegisterTags(IEnumerable<ItemTag> tags)
+    {
+        foreach (var t in tags)
+            if (!knownTags.Any(k => string.Equals(k.Name, t.Name, StringComparison.OrdinalIgnoreCase)))
+                knownTags.Add(t);
+    }
+
+    private async Task EditTags(TrackedItem item)
+    {
+        var parameters = new DialogParameters<AddTagDialog>
+        {
+            { x => x.ExistingTags, knownTags },
+            { x => x.InitiallySelected, item.Tags }
+        };
+
+        var dialog = await DialogService.ShowAsync<AddTagDialog>("Tags", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
+        {
+            RegisterTags(r.Created);
+            item.Tags = r.Selected;
+            Rebuild();
+        }
+    }
+
+    private void RemoveTag(TrackedItem item, ItemTag tag)
+    {
+        item.Tags.Remove(tag);
         Rebuild();
     }
 }
