@@ -1,10 +1,26 @@
-﻿<MudDialog>
+﻿@inject IDialogService DialogService
+
+<MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
             <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
                           Immediate="true" AutoFocus="true" OnKeyDown="KeyDown" />
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
                            Variant="Variant.Outlined" />
+
+            @if (ShowTags)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
+                        OnClick="AddTag">Tags</MudButton>
+                @foreach (var tag in tags)
+                {
+                    <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
+                            Color="@TagColors.For(tag)"
+                            OnClose="() => tags.Remove(tag)" />
+                }
+                </MudStack>
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -15,13 +31,19 @@
 </MudDialog>
 
 @code {
-    public sealed record EntryResult(string Title, DateTime? StartDate);
+    public sealed record EntryResult(string Title, DateTime? StartDate, List<ItemTag> Tags);
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public string Label { get; set; } = "Title";
+    [Parameter] public List<ItemTag> KnownTags { get; set; } = [];
+    [Parameter] public bool ShowTags { get; set; }
 
     private string? title;
     private DateTime? startDate = DateTime.Today;
+    private List<ItemTag> tags = [];
+    private List<ItemTag> localKnown = [];
+
+    protected override void OnInitialized() => localKnown = [.. KnownTags];
 
     private void KeyDown(KeyboardEventArgs e)
     {
@@ -32,8 +54,27 @@
     private void Submit()
     {
         if (string.IsNullOrWhiteSpace(title)) return;
-        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate)));
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate, tags)));
     }
 
     private void Cancel() => MudDialog.Cancel();
+
+    private async Task AddTag()
+    {
+        var parameters = new DialogParameters<AddTagDialog>
+        {
+            { x => x.ExistingTags, localKnown },
+            { x => x.InitiallySelected, tags }
+        };
+
+        var dialog = await DialogService.ShowAsync<AddTagDialog>("Tags", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
+        {
+            localKnown.AddRange(r.Created);   // so a second open still sees them
+            tags = r.Selected;
+        }
+    }
 }

@@ -20,5 +20,7 @@
 
     public List<ItemTag> Tags { get; set; } = [];
 
+    public bool IsGloballyTracked = false;
+
     public int PercentageComplete { get; set; } = 0;
 }
