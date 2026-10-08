@@ -1,26 +1,37 @@
-﻿@inject IDialogService DialogService
-
-<MudDialog>
+﻿<MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
+        <MudStack>
             <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
                           Immediate="true" AutoFocus="true" OnKeyDown="KeyDown" />
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
                            Variant="Variant.Outlined" />
 
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             @if (ShowTags)
             {
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <MudStack Row="true" AlignItems="AlignItems.Center">
                 <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
                         OnClick="AddTag">Tags</MudButton>
-                @foreach (var tag in tags)
-                {
-                    <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                            Color="@TagColors.For(tag)"
-                            OnClose="() => tags.Remove(tag)" />
-                }
-                </MudStack>
+            @foreach (var tag in tags)
+            {
+                <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
+                         Color="@TagColors.For(tag)"
+                         OnClose="() => tags.Remove(tag)" />
             }
+            </MudStack>
+            }
+            <MudSpacer />
+            @if (ShowGlobalTracking)
+            {
+                <MudTooltip Text="@(globalTrackingOn ? "Globally tracked" : "Not globally tracked")">
+                <MudToggleIconButton @bind-Toggled="globalTrackingOn"
+                                 Icon="@Icons.Material.Outlined.Radar"
+                                 Color="@Color.Error"
+                                 ToggledIcon="@Icons.Material.Filled.Radar"
+                                 ToggledColor="@Color.Success" />
+                </MudTooltip>
+            }
+        </MudStack>
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -31,15 +42,17 @@
 </MudDialog>
 
 @code {
-    public sealed record EntryResult(string Title, DateTime? StartDate, List<ItemTag> Tags);
+    public sealed record EntryResult(string Title, DateTime? StartDate, List<ItemTag> Tags, bool GlobalTracking);
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public string Label { get; set; } = "Title";
     [Parameter] public List<ItemTag> KnownTags { get; set; } = [];
     [Parameter] public bool ShowTags { get; set; }
+    [Parameter] public bool ShowGlobalTracking { get; set; }
 
     private string? title;
     private DateTime? startDate = DateTime.Today;
+    private bool globalTrackingOn;
     private List<ItemTag> tags = [];
     private List<ItemTag> localKnown = [];
 
@@ -54,7 +67,7 @@
     private void Submit()
     {
         if (string.IsNullOrWhiteSpace(title)) return;
-        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate, tags)));
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate, tags, globalTrackingOn)));
     }
 
     private void Cancel() => MudDialog.Cancel();

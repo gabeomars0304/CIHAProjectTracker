@@ -15,7 +15,7 @@
              Breakpoint="Breakpoint.None" RowStyleFunc="RowStyle"
              SortMode="SortMode.None" Filterable="false">
     <Columns>
-        <TemplateColumn Title="Title" Sortable="false" Filterable="false" CellStyle="min-width:380px">
+        <TemplateColumn Title="Title" Sortable="true" Filterable="false" CellStyle="min-width:380px">
             <CellTemplate>
                 @{
                     var row = context.Item;
@@ -41,7 +41,7 @@
             </CellTemplate>
         </TemplateColumn>
 
-        <TemplateColumn Title="Start Date" Sortable="false" Filterable="false">
+        <TemplateColumn Title="Start Date" Sortable="true" Filterable="false">
             <CellTemplate>
                 @{
                     var row = context.Item;
@@ -57,7 +57,7 @@
             </CellTemplate>
         </TemplateColumn>
 
-        <TemplateColumn Title="End Date" Sortable="false" Filterable="false">
+        <TemplateColumn Title="End Date" Sortable="true" Filterable="false">
             <CellTemplate>
                 @{
                     var row = context.Item;
@@ -77,7 +77,7 @@
             </CellTemplate>
         </TemplateColumn>
 
-        <TemplateColumn Title="Progress" Sortable="false" Filterable="false">
+        <TemplateColumn Title="Progress" Sortable="true" Filterable="false">
             <CellTemplate>
                 @{
                     var row = context.Item;
@@ -92,13 +92,12 @@
                 }
             </CellTemplate>
         </TemplateColumn>
-        <TemplateColumn Title="Tags" Sortable="false" Filterable="false" CellStyle="min-width:220px">
+        <TemplateColumn Title="Tags" Sortable="true" Filterable="false" CellStyle="min-width:170px">
             <CellTemplate>
                 @{
                     var row = context.Item;
                     var item = row.Root;
                 }
-                <div class="d-flex align-center flex-wrap" style="gap:4px">
                     @if (row.Kind == RowKind.Item)
                     {
                         @foreach (var tag in item.Tags)
@@ -116,7 +115,6 @@
                                      Color="@TagColors.For(tag)" Variant="Variant.Text" Style="opacity:0.6" />
                         }
                     }
-                </div>
             </CellTemplate>
         </TemplateColumn>
         <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="min-width:140px">
@@ -127,10 +125,18 @@
                 <MudToolBar Dense="true" Class="pa-0" Style="min-height:unset; background:transparent;">
                     @if(row.Kind == RowKind.Task)
                     {
-                        <span style="display:inline-block; width:30px"></span>
+                        <span style="display:inline-block; width:75px"></span>
                     }
                     @if (row.Kind == RowKind.Item)
                     {
+                        <MudTooltip Text="@(row.Root.IsGloballyTracked ? "Stop global tracking" : "Track globally")">
+                            <MudToggleIconButton @bind-Toggled="row.Root.IsGloballyTracked"
+                                                 @bind-Toggled:after="() => GlobalTrackingChanged(row.Root)"
+                                                 Icon="@Icons.Material.Outlined.Radar"
+                                                 Color="@Color.Error"
+                                                 ToggledIcon="@Icons.Material.Filled.Radar"
+                                                 ToggledColor="@Color.Success" />
+                        </MudTooltip>
                         <MudTooltip Text="Edit tags">
                             <MudIconButton Icon="@Icons.Material.Filled.Label" Size="Size.Small"
                                            OnClick="() => EditTags(row.Root)" />
@@ -392,12 +398,13 @@
             DeleteTask(row);
     }
 
-    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false)
+    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false, bool showGlobalTracking = false)
     {
         var parameters = new DialogParameters<AddEntryDialog>
         {
             { x => x.Label, label },
             { x => x.ShowTags, showTags },
+            { x => x.ShowGlobalTracking, showGlobalTracking },
             { x => x.KnownTags, knownTags }
         };
         var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
@@ -410,11 +417,17 @@
 
     private async Task AddItem()
     {
-        var entry = await PromptAsync("Add item", "Item title", showTags: true);
+        var entry = await PromptAsync("Add item", "Item title", showTags: true, showGlobalTracking: true);
         if (entry is null) return;
 
         RegisterTags(entry.Tags);
-        items.Add(new TrackedItem { Title = entry.Title, StartDate = entry.StartDate, Tags = entry.Tags });
+        items.Add(new TrackedItem
+        {
+            Title = entry.Title,
+            StartDate = entry.StartDate,
+            Tags = entry.Tags,
+            IsGloballyTracked = entry.GlobalTracking
+        });
         Rebuild();
     }
 
@@ -480,5 +493,10 @@
     {
         item.Tags.Remove(tag);
         Rebuild();
+    }
+
+    private void GlobalTrackingChanged(TrackedItem item)
+    {
+        
     }
 }
