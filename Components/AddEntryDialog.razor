@@ -1,4 +1,5 @@
-﻿<MudDialog>
+﻿@inject IDialogService DialogService
+<MudDialog>
     <DialogContent>
         <MudStack>
             <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
