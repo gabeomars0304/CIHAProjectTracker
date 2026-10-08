@@ -21,4 +21,6 @@
     public List<string> Notes { get; set; } = [];
 
     public int PercentageComplete { get; set; } = 0;
+
+    public bool GlobalTrackingOn { get; set; } = false;
 }
