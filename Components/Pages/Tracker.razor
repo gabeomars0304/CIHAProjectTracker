@@ -1,6 +1,9 @@
 ﻿@page "/"
+@using Microsoft.EntityFrameworkCore
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @inject IDialogService DialogService
+@inject IDbContextFactory<AppDbContext> DbFactory
 
 <PageTitle>CIHA Item Tracker</PageTitle>
 
@@ -24,7 +27,7 @@
                     <div class="d-flex align-center">
                         <MudIconButton Icon="@ExpandIcon(item)" Size="Size.Small" OnClick="() => Toggle(item)" />
                         <MudCheckBox @bind-Value="item.IsCompleted" @bind-Value:after="() => ItemChecked(item)" Color="Color.Primary" />
-                        <MudTextField @bind-Value="item.Title" Immediate="true" Margin="Margin.Dense" />
+                        <MudTextField @bind-Value="item.Title" Margin="Margin.Dense" />
                     </div>
                 }
                 else
@@ -33,7 +36,7 @@
                     <div class="d-flex align-center" style="padding-left:@(row.Depth * 28)px">
                         <MudIconButton Icon="@ExpandIcon(task)" Size="Size.Small" OnClick="() => Toggle(task)" />
                         <MudCheckBox @bind-Value="task.IsCompleted" @bind-Value:after="() => TaskChecked(task)" Color="Color.Primary" />
-                        <MudTextField @bind-Value="task.Title" Immediate="true" Margin="Margin.Dense" />
+                        <MudTextField @bind-Value="task.Title" Margin="Margin.Dense" />
                     </div>
                 }
             </CellTemplate>
@@ -46,11 +49,11 @@
                 }
                 @if (row.Kind == RowKind.Item)
                 {
-                    <MudDatePicker @bind-Date="row.Root.StartDate" Editable="true" Margin="Margin.Dense" />
+                    <MudDatePicker @bind-Date="row.Root.StartDate" @bind-Date:after="SaveAsync" Editable="true" Margin="Margin.Dense" />
                 }
                 else
                 {
-                    <MudDatePicker @bind-Date="row.Task!.StartDate" Editable="true" Margin="Margin.Dense" />
+                    <MudDatePicker @bind-Date="row.Task!.StartDate" @bind-Date:after="SaveAsync" Editable="true" Margin="Margin.Dense" />
                 }
             </CellTemplate>
         </TemplateColumn>
@@ -102,7 +105,7 @@
                         {
                             <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
                                      Color="@TagColors.For(tag)"
-                                     OnClose="() => item.Tags.Remove(tag)" />
+                                     OnClose="() => RemoveTag(item, tag)" />
                         }
                     }
                     else
@@ -128,8 +131,8 @@
                     @if (row.Kind == RowKind.Item)
                     {
                         <MudTooltip Text="@(row.Root.IsGloballyTracked ? "Stop global tracking" : "Track globally")">
-                            <MudToggleIconButton @bind-Toggled="row.Root.IsGloballyTracked"
-                                                 @bind-Toggled:after="() => GlobalTrackingChanged(row.Root)"
+                            <MudToggleIconButton Toggled="row.Root.IsGloballyTracked"
+                                                 ToggledChanged="(bool on) => SetGlobalTracking(row.Root, on)"
                                                  Icon="@Icons.Material.Outlined.Radar"
                                                  Color="@Color.Error"
                                                  ToggledIcon="@Icons.Material.Filled.Radar"
@@ -169,10 +172,39 @@
     }
 
     // ---------- state ----------
+    private AppDbContext db = default!;
+    private readonly SemaphoreSlim saveLock = new(1, 1);
+
     private List<TrackedItem> items = [];
     private List<GridRow> rows = [];
-
+    private List<ItemTag> knownTags = [];
     private readonly HashSet<object> expanded = new(ReferenceEqualityComparer.Instance);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // One context for the lifetime of this component; entities stay tracked,
+        // so edits made through the bindings are picked up by SaveChanges.
+        db = await DbFactory.CreateDbContextAsync();
+
+        knownTags = await db.Tags.OrderBy(t => t.Name).ToListAsync();
+        items = await db.Items.Include(i => i.Tags).OrderBy(i => i.Id).ToListAsync();
+
+        // Loading every task makes EF's relationship fix-up populate
+        // Item.Tasks and Task.SubTasks at every depth (no recursive Include needed).
+        await db.Tasks.OrderBy(t => t.Id).ToListAsync();
+
+        Rebuild();
+    }
+
+    public ValueTask DisposeAsync() => db is null ? ValueTask.CompletedTask : db.DisposeAsync();
+
+    // Serialised: DbContext isn't thread-safe and Blazor can overlap event handlers.
+    private async Task SaveAsync()
+    {
+        await saveLock.WaitAsync();
+        try { await db.SaveChangesAsync(); }
+        finally { saveLock.Release(); }
+    }
 
     // ---------- flattening ----------
     // Rows are cached and only rebuilt when the structure changes (expand/collapse, add, delete),
@@ -272,13 +304,15 @@
 
     // ---------- add / delete ----------
 
-    private void DeleteItem(TrackedItem item)
+    private async Task DeleteItem(TrackedItem item)
     {
         items.Remove(item);
+        db.Items.Remove(item);   // tasks cascade in the DB, subtasks via ClientCascade
+        await SaveAsync();
         Rebuild();
     }
 
-    private void DeleteTask(GridRow row)
+    private async Task DeleteTask(GridRow row)
     {
         if (row.Task is null) return;
 
@@ -287,12 +321,15 @@
         else
             row.Parent.SubTasks.Remove(row.Task);
 
+        db.Tasks.Remove(row.Task);   // removing from the collection alone would only orphan it
+
         RecomputeAllItems();
+        await SaveAsync();
         Rebuild();
     }
 
     // ---------- completion / dates ----------
-    private void ItemChecked(TrackedItem item)
+    private void ApplyItemChecked(TrackedItem item)
     {
         if (item.IsCompleted)
             item.EndDate ??= DateTime.Today;
@@ -303,46 +340,62 @@
             TaskDates.Apply(task, item.IsCompleted, item.EndDate);
     }
 
-    private void TaskChecked(ItemTask task)
+    private async Task ItemChecked(TrackedItem item)
+    {
+        ApplyItemChecked(item);
+        await SaveAsync();
+    }
+
+    private void ApplyTaskChecked(ItemTask task)
     {
         TaskDates.Apply(task, task.IsCompleted, task.EndDate);
         RecomputeAllItems();
     }
 
-    private void ItemEndDateChanged(TrackedItem item)
+    private async Task TaskChecked(ItemTask task)
     {
-        if (item.EndDate is not { } end) return;
-
-        if (end.Date <= DateTime.Today && !item.IsCompleted)
-        {
-            item.IsCompleted = true;
-            ItemChecked(item);
-        }
-        else if (end.Date > DateTime.Today && item.IsCompleted)
-        {
-            var picked = item.EndDate;
-            item.IsCompleted = false;
-            ItemChecked(item);      // uncompletes tasks/subtasks, clears dates
-            item.EndDate = picked;  // keep the date the user chose
-        }
+        ApplyTaskChecked(task);
+        await SaveAsync();
     }
 
-    private void TaskEndDateChanged(ItemTask task)
+    private async Task ItemEndDateChanged(TrackedItem item)
     {
-        if (task.EndDate is not { } end) return;
+        if (item.EndDate is { } end)
+        {
+            if (end.Date <= DateTime.Today && !item.IsCompleted)
+            {
+                item.IsCompleted = true;
+                ApplyItemChecked(item);
+            }
+            else if (end.Date > DateTime.Today && item.IsCompleted)
+            {
+                var picked = item.EndDate;
+                item.IsCompleted = false;
+                ApplyItemChecked(item);   // uncompletes tasks/subtasks, clears dates
+                item.EndDate = picked;    // keep the date the user chose
+            }
+        }
+        await SaveAsync();
+    }
 
-        if (end.Date <= DateTime.Today && !task.IsCompleted)
+    private async Task TaskEndDateChanged(ItemTask task)
+    {
+        if (task.EndDate is { } end)
         {
-            task.IsCompleted = true;
-            TaskChecked(task);
+            if (end.Date <= DateTime.Today && !task.IsCompleted)
+            {
+                task.IsCompleted = true;
+                ApplyTaskChecked(task);
+            }
+            else if (end.Date > DateTime.Today && task.IsCompleted)
+            {
+                var picked = task.EndDate;
+                TaskDates.Apply(task, false);
+                task.EndDate = picked;
+                RecomputeAllItems();
+            }
         }
-        else if (end.Date > DateTime.Today && task.IsCompleted)
-        {
-            var picked = task.EndDate;
-            TaskDates.Apply(task, false);   // uncompletes this task and its subtasks
-            task.EndDate = picked;          // keep the date the user chose
-            RecomputeAllItems();
-        }
+        await SaveAsync();
     }
 
     private void RecomputeAllItems()
@@ -388,12 +441,12 @@
         }
     }
 
-    private void DeleteRow(GridRow row)
+    private async Task DeleteRow(GridRow row)
     {
         if (row.Kind == RowKind.Item)
-            DeleteItem(row.Root);
+            await DeleteItem(row.Root);
         else
-            DeleteTask(row);
+            await DeleteTask(row);
     }
 
     private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false, bool showGlobalTracking = false)
@@ -419,13 +472,17 @@
         if (entry is null) return;
 
         RegisterTags(entry.Tags);
-        items.Add(new TrackedItem
+        var item = new TrackedItem
         {
             Title = entry.Title,
             StartDate = entry.StartDate,
             Tags = entry.Tags,
             IsGloballyTracked = entry.GlobalTracking
-        });
+        };
+
+        items.Add(item);
+        db.Items.Add(item);
+        await SaveAsync();
         Rebuild();
     }
 
@@ -443,29 +500,28 @@
                 item.Tasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
                 break;
             case ItemTask parent:
-                parent.SubTasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate, ParentId = parent.Id });
+                // EF sets ParentId from the collection; no need to assign it by hand
+                parent.SubTasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
                 break;
         }
 
-        expanded.Add(owner);   // make sure the new child is visible
+        expanded.Add(owner);
         RecomputeAllItems();
+        await SaveAsync();
         Rebuild();
     }
-
-    private readonly List<ItemTag> knownTags =
-    [
-        new ItemTag { Name = "Project" },
-        new ItemTag { Name = "Action Item" },
-        new ItemTag { Name = "Project On Hold" },
-        new ItemTag { Name = "Issues/Blockers" }
-    ];
 
     // Adds any newly created tags to the catalog (by name, case-insensitive)
     private void RegisterTags(IEnumerable<ItemTag> tags)
     {
         foreach (var t in tags)
-            if (!knownTags.Any(k => string.Equals(k.Name, t.Name, StringComparison.OrdinalIgnoreCase)))
-                knownTags.Add(t);
+        {
+            if (knownTags.Any(k => string.Equals(k.Name, t.Name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            knownTags.Add(t);
+            db.Tags.Add(t);
+        }
     }
 
     private async Task EditTags(TrackedItem item)
@@ -483,19 +539,22 @@
         if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
         {
             RegisterTags(r.Created);
-            item.Tags = r.Selected;
+            item.Tags.Clear();               // mutate the tracked collection instead of replacing it
+            item.Tags.AddRange(r.Selected);
+            await SaveAsync();
             Rebuild();
         }
     }
 
-    private void RemoveTag(TrackedItem item, ItemTag tag)
+    private async Task RemoveTag(TrackedItem item, ItemTag tag)
     {
         item.Tags.Remove(tag);
-        Rebuild();
+        await SaveAsync();
     }
 
-    private void GlobalTrackingChanged(TrackedItem item)
+    private async Task SetGlobalTracking(TrackedItem item, bool on)
     {
-        
+        item.IsGloballyTracked = on;
+        await SaveAsync();
     }
 }
