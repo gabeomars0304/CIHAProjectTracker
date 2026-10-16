@@ -1,9 +1,9 @@
 ﻿@page "/"
-@using Microsoft.EntityFrameworkCore
 @rendermode InteractiveServer
-@implements IAsyncDisposable
+@implements IDisposable
 @inject IDialogService DialogService
-@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ItemService Service
+@inject ChangeNotifier Notifier
 
 <PageTitle>CIHA Item Tracker</PageTitle>
 
@@ -13,139 +13,75 @@
 </MudToolBar>
 
 <MudDataGrid T="GridRow" Items="rows" Dense="true" Hover="true"
-             Breakpoint="Breakpoint.None" RowStyleFunc="RowStyle"
+             Breakpoint="Breakpoint.None" RowStyleFunc="RowStyle" RowClick="OnRowClick"
              SortMode="SortMode.None" Filterable="false">
     <Columns>
-        <TemplateColumn Title="Title" Sortable="true" Filterable="false" CellStyle="min-width:380px">
+        <TemplateColumn Title="Title" CellStyle="min-width:200px">
             <CellTemplate>
-                @{
-                    var row = context.Item;
-                }
-                @if (row.Kind == RowKind.Item)
+                @{ var row = context.Item; }
+                <div class="d-flex align-center" style="padding-left:@(row.Depth * 28)px">
+                    <MudIconButton Icon="@ExpandIcon(row.Owner)" Size="Size.Small" OnClick="() => Toggle(row.Owner)" />
+                    <MudIcon Icon="@(IsDone(row) ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.RadioButtonUnchecked)"
+                             Color="@(IsDone(row) ? Color.Success : Color.Default)" Size="Size.Small" Class="mx-2" />
+                    <MudText>@(row.Kind == RowKind.Item ? row.Root.Title : row.Task!.Title)</MudText>
+                </div>
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="Start Date">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @((row.Kind == RowKind.Item ? row.Root.StartDate : row.Task!.StartDate)?.ToString("d"))
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="End Date">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @((row.Kind == RowKind.Item ? row.Root.EndDate : row.Task!.EndDate)?.ToString("d"))
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="Progress">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @ProgressCircle(row.Kind == RowKind.Item
+                    ? GetItemProgressPercent(row.Root)
+                    : GetTaskProgressPercent(row.Task!))
+            </CellTemplate>
+        </TemplateColumn>
+
+        <TemplateColumn Title="Tag" CellStyle="min-width:170px">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @foreach (var tag in row.Root.Tags)
                 {
-                    var item = row.Root;
-                    <div class="d-flex align-center">
-                        <MudIconButton Icon="@ExpandIcon(item)" Size="Size.Small" OnClick="() => Toggle(item)" />
-                        <MudCheckBox @bind-Value="item.IsCompleted" @bind-Value:after="() => ItemChecked(item)" Color="Color.Primary" />
-                        <MudTextField @bind-Value="item.Title" Margin="Margin.Dense" />
-                    </div>
-                }
-                else
-                {
-                    var task = row.Task!;
-                    <div class="d-flex align-center" style="padding-left:@(row.Depth * 28)px">
-                        <MudIconButton Icon="@ExpandIcon(task)" Size="Size.Small" OnClick="() => Toggle(task)" />
-                        <MudCheckBox @bind-Value="task.IsCompleted" @bind-Value:after="() => TaskChecked(task)" Color="Color.Primary" />
-                        <MudTextField @bind-Value="task.Title" Margin="Margin.Dense" />
-                    </div>
+                    <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small" Color="@TagColors.For(tag)"
+                             Variant="@(row.Kind == RowKind.Item ? Variant.Filled : Variant.Text)"
+                             Style="@(row.Kind == RowKind.Item ? "" : "opacity:0.6")" />
                 }
             </CellTemplate>
         </TemplateColumn>
 
-        <TemplateColumn Title="Start Date" Sortable="true" Filterable="false">
+        <TemplateColumn Title="" CellStyle="min-width:140px">
             <CellTemplate>
-                @{
-                    var row = context.Item;
-                }
-                @if (row.Kind == RowKind.Item)
-                {
-                    <MudDatePicker @bind-Date="row.Root.StartDate" @bind-Date:after="SaveAsync" Editable="true" Margin="Margin.Dense" />
-                }
-                else
-                {
-                    <MudDatePicker @bind-Date="row.Task!.StartDate" @bind-Date:after="SaveAsync" Editable="true" Margin="Margin.Dense" />
-                }
-            </CellTemplate>
-        </TemplateColumn>
-
-        <TemplateColumn Title="End Date" Sortable="true" Filterable="false">
-            <CellTemplate>
-                @{
-                    var row = context.Item;
-                }
-                @if (row.Kind == RowKind.Item)
-                {
-                    var item = row.Root;
-                    <MudDatePicker @bind-Date="item.EndDate" Editable="true" Margin="Margin.Dense"
-                                   @bind-Date:after="() => ItemEndDateChanged(item)" />
-                }
-                else
-                {
-                    var task = row.Task!;
-                    <MudDatePicker @bind-Date="task.EndDate" Editable="true" Margin="Margin.Dense"
-                                   @bind-Date:after="() => TaskEndDateChanged(task)" />
-                }
-            </CellTemplate>
-        </TemplateColumn>
-
-        <TemplateColumn Title="Progress" Sortable="true" Filterable="false">
-            <CellTemplate>
-                @{
-                    var row = context.Item;
-                }
-                @if (row.Kind == RowKind.Item)
-                {
-                    @ProgressCircle(GetItemProgressPercent(row.Root))
-                }
-                else
-                {
-                    @ProgressCircle(GetTaskProgressPercent(row.Task!))
-                }
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="Tags" Sortable="true" Filterable="false" CellStyle="min-width:170px">
-            <CellTemplate>
-                @{
-                    var row = context.Item;
-                    var item = row.Root;
-                }
-                    @if (row.Kind == RowKind.Item)
-                    {
-                        @foreach (var tag in item.Tags)
-                        {
-                            <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                                     Color="@TagColors.For(tag)"
-                                     OnClose="() => RemoveTag(item, tag)" />
-                        }
-                    }
-                    else
-                    {
-                        @foreach (var tag in item.Tags)
-                        {
-                            <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                                     Color="@TagColors.For(tag)" Variant="Variant.Text" Style="opacity:0.6" />
-                        }
-                    }
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="min-width:140px">
-            <CellTemplate>
-                @{
-                    var row = context.Item;
-                }
+                @{ var row = context.Item; }
                 <MudToolBar Dense="true" Class="pa-0" Style="min-height:unset; background:transparent;">
-                    @if(row.Kind == RowKind.Task)
+                    @if (row.Kind == RowKind.Item && row.Root.IsGloballyTracked)
                     {
-                        <span style="display:inline-block; width:75px"></span>
-                    }
-                    @if (row.Kind == RowKind.Item)
-                    {
-                        <MudTooltip Text="@(row.Root.IsGloballyTracked ? "Stop global tracking" : "Track globally")">
-                            <MudToggleIconButton Toggled="row.Root.IsGloballyTracked"
-                                                 ToggledChanged="(bool on) => SetGlobalTracking(row.Root, on)"
-                                                 Icon="@Icons.Material.Outlined.Radar"
-                                                 Color="@Color.Error"
-                                                 ToggledIcon="@Icons.Material.Filled.Radar"
-                                                 ToggledColor="@Color.Success" />
+                        <MudTooltip Text="Globally tracked">
+                            <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Success" Size="Size.Small" />
                         </MudTooltip>
-                        <MudTooltip Text="Edit tags">
-                            <MudIconButton Icon="@Icons.Material.Filled.Label" Size="Size.Small"
-                                           OnClick="() => EditTags(row.Root)" />
+                    }
+                    else if (row.Kind == RowKind.Item)
+                    {
+                        <MudTooltip Text="Globally tracked">
+                            <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Error" Size="Size.Small" />
                         </MudTooltip>
                     }
                     <MudTooltip Text="@(row.Kind == RowKind.Item ? "Add task" : "Add subtask")">
                         <MudIconButton Icon="@Icons.Material.Filled.PlaylistAdd" Color="Color.Primary" Size="Size.Small"
-                                       OnClick="() => AddChild(row.Owner)" />
+                                       OnClick="() => AddChild(row)" />
                     </MudTooltip>
                     <MudTooltip Text="Delete">
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
@@ -160,7 +96,7 @@
 @code {
     // ---------- row model ----------
     private enum RowKind { Item, Task }
-    // Owner: the item/task the row represents (Item/Task rows) or the parent a new child is added to (Add rows)
+
     private sealed class GridRow
     {
         public RowKind Kind { get; init; }
@@ -172,43 +108,64 @@
     }
 
     // ---------- state ----------
-    private AppDbContext db = default!;
-    private readonly SemaphoreSlim saveLock = new(1, 1);
-
     private List<TrackedItem> items = [];
     private List<GridRow> rows = [];
     private List<ItemTag> knownTags = [];
-    private readonly HashSet<object> expanded = new(ReferenceEqualityComparer.Instance);
+    private bool loading, reloadQueued, disposed;
 
+    // Keyed by ID, not object reference: every reload creates new entity instances.
+    private readonly HashSet<string> expanded = [];
+
+    private static string Key(object node) => node switch
+    {
+        TrackedItem i => $"i{i.Id}",
+        ItemTask t => $"t{t.Id}",
+        _ => throw new ArgumentException("Unknown node")
+    };
+
+    // ---------- lifecycle ----------
     protected override async Task OnInitializedAsync()
     {
-        // One context for the lifetime of this component; entities stay tracked,
-        // so edits made through the bindings are picked up by SaveChanges.
-        db = await DbFactory.CreateDbContextAsync();
-
-        knownTags = await db.Tags.OrderBy(t => t.Name).ToListAsync();
-        items = await db.Items.Include(i => i.Tags).OrderBy(i => i.Id).ToListAsync();
-
-        // Loading every task makes EF's relationship fix-up populate
-        // Item.Tasks and Task.SubTasks at every depth (no recursive Include needed).
-        await db.Tasks.OrderBy(t => t.Id).ToListAsync();
-
-        Rebuild();
+        await LoadAsync();
+        Notifier.Changed += OnChanged;
     }
 
-    public ValueTask DisposeAsync() => db is null ? ValueTask.CompletedTask : db.DisposeAsync();
-
-    // Serialised: DbContext isn't thread-safe and Blazor can overlap event handlers.
-    private async Task SaveAsync()
+    public void Dispose()
     {
-        await saveLock.WaitAsync();
-        try { await db.SaveChangesAsync(); }
-        finally { saveLock.Release(); }
+        disposed = true;
+        Notifier.Changed -= OnChanged;
     }
+
+    // Coalesces bursts: if a reload is running, run exactly one more afterwards.
+    private async Task LoadAsync()
+    {
+        if (loading) { reloadQueued = true; return; }
+
+        loading = true;
+        try
+        {
+            do
+            {
+                reloadQueued = false;
+                (items, knownTags) = await Service.LoadAllAsync();
+                Rebuild();
+            } while (reloadQueued);
+        }
+        finally { loading = false; }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(async () =>
+    {
+        if (disposed) return;
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception) { /* circuit may be gone; ignore */ }
+    });
 
     // ---------- flattening ----------
-    // Rows are cached and only rebuilt when the structure changes (expand/collapse, add, delete),
-    // so typing in a cell doesn't cause the grid to receive a brand-new list on every keystroke.
     private void Rebuild() => rows = BuildRows().ToList();
 
     private IEnumerable<GridRow> BuildRows()
@@ -217,7 +174,7 @@
         {
             yield return new GridRow { Kind = RowKind.Item, Depth = 0, Root = item, Owner = item };
 
-            if (!expanded.Contains(item)) continue;
+            if (!expanded.Contains(Key(item))) continue;
 
             foreach (var task in item.Tasks)
                 foreach (var r in TaskRows(item, null, task, 1))
@@ -229,7 +186,7 @@
     {
         yield return new GridRow { Kind = RowKind.Task, Depth = depth, Root = root, Parent = parent, Task = task, Owner = task };
 
-        if (!expanded.Contains(task)) yield break;
+        if (!expanded.Contains(Key(task))) yield break;
 
         foreach (var sub in task.SubTasks)
             foreach (var r in TaskRows(root, task, sub, depth + 1))
@@ -238,16 +195,21 @@
 
     private void Toggle(object node)
     {
-        if (!expanded.Remove(node))
-            expanded.Add(node);
+        var key = Key(node);
+        if (!expanded.Remove(key))
+            expanded.Add(key);
         Rebuild();
     }
 
     private string ExpandIcon(object node) =>
-        expanded.Contains(node) ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight;
+        expanded.Contains(Key(node)) ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight;
+
+    private static bool IsDone(GridRow row) =>
+        row.Kind == RowKind.Item ? row.Root.IsCompleted : row.Task!.IsCompleted;
 
     private string RowStyle(GridRow row, int index) =>
-        row.Kind == RowKind.Item ? "background: var(--mud-palette-background-gray); font-weight: 500;" : "";
+        "cursor:pointer;" + (row.Kind == RowKind.Item
+            ? "background: var(--mud-palette-background-gray); font-weight: 500;" : "");
 
     // ---------- progress ----------
     private RenderFragment ProgressCircle(int percent) => __builder =>
@@ -302,153 +264,25 @@
         return total == 0 ? 0 : (int)Math.Round(100.0 * completed / total);
     }
 
+    // ---------- editing ----------
+    private Task OnRowClick(DataGridRowClickEventArgs<GridRow> e) => OpenEditor(e.Item);
+
+    private async Task OpenEditor(GridRow row)
+    {
+        var isItem = row.Kind == RowKind.Item;
+        var parameters = new DialogParameters<EditEntryDialog>
+        {
+            { x => x.IsItem, isItem },
+            { x => x.EntryId, isItem ? row.Root.Id : row.Task!.Id },
+            { x => x.KnownTags, knownTags }
+        };
+
+        // The result isn't needed: a successful save broadcasts and this page reloads.
+        await DialogService.ShowAsync<EditEntryDialog>(isItem ? "Edit item" : "Edit task", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+    }
+
     // ---------- add / delete ----------
-
-    private async Task DeleteItem(TrackedItem item)
-    {
-        items.Remove(item);
-        db.Items.Remove(item);   // tasks cascade in the DB, subtasks via ClientCascade
-        await SaveAsync();
-        Rebuild();
-    }
-
-    private async Task DeleteTask(GridRow row)
-    {
-        if (row.Task is null) return;
-
-        if (row.Parent is null)
-            row.Root.Tasks.Remove(row.Task);
-        else
-            row.Parent.SubTasks.Remove(row.Task);
-
-        db.Tasks.Remove(row.Task);   // removing from the collection alone would only orphan it
-
-        RecomputeAllItems();
-        await SaveAsync();
-        Rebuild();
-    }
-
-    // ---------- completion / dates ----------
-    private void ApplyItemChecked(TrackedItem item)
-    {
-        if (item.IsCompleted)
-            item.EndDate ??= DateTime.Today;
-        else
-            item.EndDate = null;
-
-        foreach (var task in item.Tasks)
-            TaskDates.Apply(task, item.IsCompleted, item.EndDate);
-    }
-
-    private async Task ItemChecked(TrackedItem item)
-    {
-        ApplyItemChecked(item);
-        await SaveAsync();
-    }
-
-    private void ApplyTaskChecked(ItemTask task)
-    {
-        TaskDates.Apply(task, task.IsCompleted, task.EndDate);
-        RecomputeAllItems();
-    }
-
-    private async Task TaskChecked(ItemTask task)
-    {
-        ApplyTaskChecked(task);
-        await SaveAsync();
-    }
-
-    private async Task ItemEndDateChanged(TrackedItem item)
-    {
-        if (item.EndDate is { } end)
-        {
-            if (end.Date <= DateTime.Today && !item.IsCompleted)
-            {
-                item.IsCompleted = true;
-                ApplyItemChecked(item);
-            }
-            else if (end.Date > DateTime.Today && item.IsCompleted)
-            {
-                var picked = item.EndDate;
-                item.IsCompleted = false;
-                ApplyItemChecked(item);   // uncompletes tasks/subtasks, clears dates
-                item.EndDate = picked;    // keep the date the user chose
-            }
-        }
-        await SaveAsync();
-    }
-
-    private async Task TaskEndDateChanged(ItemTask task)
-    {
-        if (task.EndDate is { } end)
-        {
-            if (end.Date <= DateTime.Today && !task.IsCompleted)
-            {
-                task.IsCompleted = true;
-                ApplyTaskChecked(task);
-            }
-            else if (end.Date > DateTime.Today && task.IsCompleted)
-            {
-                var picked = task.EndDate;
-                TaskDates.Apply(task, false);
-                task.EndDate = picked;
-                RecomputeAllItems();
-            }
-        }
-        await SaveAsync();
-    }
-
-    private void RecomputeAllItems()
-    {
-        foreach (var item in items)
-            RecomputeItem(item);
-    }
-
-    private static bool RecomputeTaskStatus(ItemTask task)
-    {
-        if (task.SubTasks.Count == 0)
-            return task.IsCompleted;
-
-        bool allChildrenComplete = true;
-        foreach (var sub in task.SubTasks)
-        {
-            if (!RecomputeTaskStatus(sub))
-                allChildrenComplete = false;
-        }
-
-        TaskDates.SetDerivedStatus(task, allChildrenComplete, task.SubTasks.Max(s => s.EndDate));
-        return allChildrenComplete;
-    }
-
-    private static void RecomputeItem(TrackedItem item)
-    {
-        if (item.Tasks.Count == 0) return;
-
-        bool allComplete = true;
-        foreach (var task in item.Tasks)
-        {
-            if (!RecomputeTaskStatus(task))
-                allComplete = false;
-        }
-
-        if (item.IsCompleted != allComplete)
-        {
-            item.IsCompleted = allComplete;
-            if (allComplete)
-                item.EndDate ??= item.Tasks.Max(t => t.EndDate) ?? DateTime.Today;
-            else
-                item.EndDate = null;
-        }
-    }
-
-    private async Task DeleteRow(GridRow row)
-    {
-        if (row.Kind == RowKind.Item)
-            await DeleteItem(row.Root);
-        else
-            await DeleteTask(row);
-    }
-
     private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false, bool showGlobalTracking = false)
     {
         var parameters = new DialogParameters<AddEntryDialog>
@@ -471,90 +305,31 @@
         var entry = await PromptAsync("Add item", "Item title", showTags: true, showGlobalTracking: true);
         if (entry is null) return;
 
-        RegisterTags(entry.Tags);
-        var item = new TrackedItem
-        {
-            Title = entry.Title,
-            StartDate = entry.StartDate,
-            Tags = entry.Tags,
-            IsGloballyTracked = entry.GlobalTracking
-        };
-
-        items.Add(item);
-        db.Items.Add(item);
-        await SaveAsync();
-        Rebuild();
+        await Service.AddItemAsync(entry.Title, entry.StartDate,
+                                   entry.Tags.Select(t => t.Name), entry.GlobalTracking);
     }
 
-    private async Task AddChild(object owner)
+    private async Task AddChild(GridRow row)
     {
-        var isItem = owner is TrackedItem;
+        var isItem = row.Kind == RowKind.Item;
         var entry = await PromptAsync(isItem ? "Add task" : "Add subtask",
                                       isItem ? "Task title" : "Subtask title");
         if (entry is null) return;
 
-        RegisterTags(entry.Tags);
-        switch (owner)
-        {
-            case TrackedItem item:
-                item.Tasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
-                break;
-            case ItemTask parent:
-                // EF sets ParentId from the collection; no need to assign it by hand
-                parent.SubTasks.Add(new ItemTask { Title = entry.Title, StartDate = entry.StartDate });
-                break;
-        }
-
-        expanded.Add(owner);
-        RecomputeAllItems();
-        await SaveAsync();
-        Rebuild();
+        expanded.Add(Key(row.Owner));   // so the new child is visible after the reload
+        await Service.AddTaskAsync(isItem ? row.Root.Id : null,
+                                   isItem ? null : row.Task!.Id,
+                                   entry.Title, entry.StartDate);
     }
 
-    // Adds any newly created tags to the catalog (by name, case-insensitive)
-    private void RegisterTags(IEnumerable<ItemTag> tags)
+    private async Task DeleteRow(GridRow row)
     {
-        foreach (var t in tags)
-        {
-            if (knownTags.Any(k => string.Equals(k.Name, t.Name, StringComparison.OrdinalIgnoreCase)))
-                continue;
+        var title = row.Kind == RowKind.Item ? row.Root.Title : row.Task!.Title;
+        var yes = await DialogService.ShowMessageBoxAsync("Delete",
+            $"Delete \"{title}\" and everything under it?", yesText: "Delete", cancelText: "Cancel");
+        if (yes != true) return;
 
-            knownTags.Add(t);
-            db.Tags.Add(t);
-        }
-    }
-
-    private async Task EditTags(TrackedItem item)
-    {
-        var parameters = new DialogParameters<AddTagDialog>
-        {
-            { x => x.ExistingTags, knownTags },
-            { x => x.InitiallySelected, item.Tags }
-        };
-
-        var dialog = await DialogService.ShowAsync<AddTagDialog>("Tags", parameters,
-            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true });
-        var result = await dialog.Result;
-
-        if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
-        {
-            RegisterTags(r.Created);
-            item.Tags.Clear();               // mutate the tracked collection instead of replacing it
-            item.Tags.AddRange(r.Selected);
-            await SaveAsync();
-            Rebuild();
-        }
-    }
-
-    private async Task RemoveTag(TrackedItem item, ItemTag tag)
-    {
-        item.Tags.Remove(tag);
-        await SaveAsync();
-    }
-
-    private async Task SetGlobalTracking(TrackedItem item, bool on)
-    {
-        item.IsGloballyTracked = on;
-        await SaveAsync();
+        await Service.DeleteAsync(row.Kind == RowKind.Item,
+                                  row.Kind == RowKind.Item ? row.Root.Id : row.Task!.Id);
     }
 }

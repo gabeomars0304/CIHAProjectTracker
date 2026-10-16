@@ -1,4 +1,6 @@
-﻿public class ItemTask
+﻿using System.ComponentModel.DataAnnotations;
+
+public class ItemTask
 {
     public int Id { get; set; }
     public int? TrackedItemId { get; set; }
@@ -13,4 +15,6 @@
     public List<string> Notes { get; set; } = [];
     public int PercentageComplete { get; set; } = 0;
     public bool GlobalTrackingOn { get; set; } = false;
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = [];
 }

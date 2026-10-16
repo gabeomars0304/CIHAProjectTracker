@@ -12,7 +12,7 @@
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                 <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
-                        OnClick="AddTag">Tags</MudButton>
+                        OnClick="AddTag">Tag</MudButton>
             @foreach (var tag in tags)
             {
                 <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
