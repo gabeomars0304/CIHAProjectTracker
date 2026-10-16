@@ -1,0 +1,176 @@
+﻿@implements IDisposable
+@inject ItemService Service
+@inject ChangeNotifier Notifier
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_model is null)
+        {
+            <MudAlert Severity="Severity.Warning">This entry was deleted by someone else.</MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                @if (_stale)
+                {
+                    <MudAlert Severity="Severity.Warning">
+                        Someone else changed this entry while you were editing.
+                        <MudStack Row="true" Class="mt-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="LoadLatest">Load latest</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="KeepMine">Overwrite with mine</MudButton>
+                        </MudStack>
+                    </MudAlert>
+                }
+
+                <MudTextField Label="Title" @bind-Value="_model.Title" Variant="Variant.Outlined"
+                              Immediate="true" AutoFocus="true" />
+                <MudTextField Label="Description" @bind-Value="_model.Description" Variant="Variant.Outlined"
+                              Lines="3" AutoGrow="true" />
+
+                <MudStack Row="true">
+                    <MudDatePicker Label="Start Date" @bind-Date="_model.StartDate" Editable="true"
+                                   Variant="Variant.Outlined" />
+                    <MudDatePicker Label="End Date" Date="_model.EndDate" DateChanged="EndDateChanged" Editable="true"
+                                   Variant="Variant.Outlined" />
+                </MudStack>
+
+                <MudCheckBox T="bool" Value="_model.IsCompleted" ValueChanged="CompletedChanged"
+                             Label="Completed" Color="Color.Primary" />
+
+                @if (IsItem)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
+                                   OnClick="PickTags">Tag</MudButton>
+                        @foreach (var name in _model.TagNames)
+                        {
+                            <MudChip T="string" Text="@name" Size="Size.Small"
+                                     Color="@TagColors.For(new ItemTag { Name = name })"
+                                     OnClose="() => _model.TagNames.Remove(name)" />
+                        }
+                    </MudStack>
+
+                    <MudSwitch T="bool" @bind-Value="_model.IsGloballyTracked" Color="Color.Success"
+                               Label="Track globally" />
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@(_model is null && !_loading ? "Close" : "Cancel")</MudButton>
+        <MudButton OnClick="Submit" Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_model is null || _stale || _saving || string.IsNullOrWhiteSpace(_model.Title))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public bool IsItem { get; set; }
+    [Parameter] public int EntryId { get; set; }
+    [Parameter] public List<ItemTag> KnownTags { get; set; } = [];
+
+    private EditModel? _model;
+    private bool _loading = true, _stale, _saving, _closed;
+    private List<ItemTag> _known = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _known = [.. KnownTags];
+        _model = await Service.GetEditModelAsync(IsItem, EntryId);
+        _loading = false;
+        Notifier.Changed += OnRemoteChange;
+    }
+
+    public void Dispose() => Notifier.Changed -= OnRemoteChange;
+
+    // Someone saved something: did it touch the row we're editing?
+    private void OnRemoteChange() => _ = InvokeAsync(async () =>
+    {
+        if (_model is null || _stale || _saving || _closed) return;
+
+        var current = await Service.GetRowVersionAsync(IsItem, EntryId);
+        if (current is null)
+            _model = null;                                           // deleted
+        else if (!current.AsSpan().SequenceEqual(_model.RowVersion))
+            _stale = true;                                           // changed
+
+        StateHasChanged();
+    });
+
+    private async Task LoadLatest()
+    {
+        _model = await Service.GetEditModelAsync(IsItem, EntryId);   // null if it was deleted
+        _stale = false;
+    }
+
+    private async Task KeepMine()
+    {
+        var current = await Service.GetRowVersionAsync(IsItem, EntryId);
+        if (current is null) { _model = null; return; }
+
+        _model!.RowVersion = current;   // adopt the latest version so our values win
+        _stale = false;
+    }
+
+    private void CompletedChanged(bool done)
+    {
+        _model!.IsCompleted = done;
+        if (done) _model.EndDate ??= DateTime.Today;
+        else _model.EndDate = null;
+    }
+
+    private void EndDateChanged(DateTime? date)
+    {
+        _model!.EndDate = date;
+        if (date is { } end)
+            _model.IsCompleted = end.Date <= DateTime.Today;
+    }
+
+    private async Task PickTags()
+    {
+        var selected = _model!.TagNames.Select(n => new ItemTag { Name = n }).ToList();
+        var parameters = new DialogParameters<AddTagDialog>
+        {
+            { x => x.ExistingTags, _known },
+            { x => x.InitiallySelected, selected }
+        };
+
+        var dialog = await DialogService.ShowAsync<AddTagDialog>("Tags", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
+        {
+            _known.AddRange(r.Created);
+            _model.TagNames = r.Selected.Select(t => t.Name).ToList();
+        }
+    }
+
+    private async Task Submit()
+    {
+        if (_model is null || string.IsNullOrWhiteSpace(_model.Title)) return;
+        _model.Title = _model.Title.Trim();
+
+        _saving = true;   // also stops our own broadcast from flagging the dialog as stale
+        var result = await Service.SaveAsync(_model);
+
+        if (result == SaveResult.Ok)
+        {
+            _closed = true;
+            MudDialog.Close(DialogResult.Ok(true));
+            return;
+        }
+
+        _saving = false;
+        if (result == SaveResult.Deleted) _model = null;
+        else _stale = true;   // lost a race: let the user choose
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

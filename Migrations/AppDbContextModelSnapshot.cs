@@ -110,6 +110,12 @@ namespace CIHAProjectTracker.Migrations
                     b.Property<int>("PercentageComplete")
                         .HasColumnType("int");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<DateTime?>("StartDate")
                         .HasColumnType("datetime2");
 
@@ -160,6 +166,12 @@ namespace CIHAProjectTracker.Migrations
 
                     b.Property<int>("PercentageComplete")
                         .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<DateTime?>("StartDate")
                         .HasColumnType("datetime2");

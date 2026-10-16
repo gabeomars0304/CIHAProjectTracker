@@ -11,6 +11,8 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddDbContextFactory<AppDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddSingleton<ChangeNotifier>();
+builder.Services.AddSingleton<ItemService>();
 
 var app = builder.Build();
 
