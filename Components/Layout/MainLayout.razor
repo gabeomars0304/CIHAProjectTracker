@@ -15,7 +15,7 @@
 
     <MudDrawer @bind-Open="@_open" Anchor="@_anchor" Elevation="1" Variant="@DrawerVariant.Temporary" OverlayAutoClose="true">
         <MudDrawerHeader>
-            <MudText Typo="Typo.h6">CIHA Items Tracker</MudText>
+            <MudText Typo="Typo.h6">CIHA Item Pages</MudText>
         </MudDrawerHeader>
         <NavMenu />
     </MudDrawer>
@@ -34,7 +34,7 @@
 
 
 @code {
-    private MudThemeProvider _mudThemeProvider;
+    private MudThemeProvider? _mudThemeProvider;
     private MudTheme _theme = new();
     private bool _isDarkMode;
     private bool _open;
