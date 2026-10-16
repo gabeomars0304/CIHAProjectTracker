@@ -42,6 +42,7 @@
                 <MudCheckBox T="bool" Value="_model.IsCompleted" ValueChanged="CompletedChanged"
                              Label="Completed" Color="Color.Primary" />
 
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                 @if (IsItem)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
@@ -56,8 +57,9 @@
                     </MudStack>
 
                     <MudSwitch T="bool" @bind-Value="_model.IsGloballyTracked" Color="Color.Success"
-                               Label="Track globally" />
+                               Label="Track Globally" />
                 }
+            </MudStack>
             </MudStack>
         }
     </DialogContent>

@@ -4,6 +4,8 @@
         <MudStack>
             <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
                           Immediate="true" AutoFocus="true" OnKeyDown="KeyDown" />
+            <MudTextField Label="Description" @bind-Value="description" Variant="Variant.Outlined"
+                          Lines="3" AutoGrow="true" />
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
                            Variant="Variant.Outlined" />
 
@@ -24,13 +26,8 @@
             <MudSpacer />
             @if (ShowGlobalTracking)
             {
-                <MudTooltip Text="@(globalTrackingOn ? "Globally tracked" : "Not globally tracked")">
-                <MudToggleIconButton @bind-Toggled="globalTrackingOn"
-                                 Icon="@Icons.Material.Outlined.Radar"
-                                 Color="@Color.Error"
-                                 ToggledIcon="@Icons.Material.Filled.Radar"
-                                 ToggledColor="@Color.Success" />
-                </MudTooltip>
+                <MudSwitch T="bool" @bind-Toggled="globalTrackingOn" Color="Color.Success"
+                        Label="Track Globally"/>
             }
         </MudStack>
         </MudStack>
@@ -43,7 +40,7 @@
 </MudDialog>
 
 @code {
-    public sealed record EntryResult(string Title, DateTime? StartDate, List<ItemTag> Tags, bool GlobalTracking);
+    public sealed record EntryResult(string Title, string? Description, DateTime? StartDate, List<ItemTag> Tags, bool GlobalTracking);
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public string Label { get; set; } = "Title";
@@ -52,6 +49,7 @@
     [Parameter] public bool ShowGlobalTracking { get; set; }
 
     private string? title;
+    private string? description;
     private DateTime? startDate = DateTime.Today;
     private bool globalTrackingOn;
     private List<ItemTag> tags = [];
@@ -68,7 +66,7 @@
     private void Submit()
     {
         if (string.IsNullOrWhiteSpace(title)) return;
-        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), startDate, tags, globalTrackingOn)));
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), description, startDate, tags, globalTrackingOn)));
     }
 
     private void Cancel() => MudDialog.Cancel();

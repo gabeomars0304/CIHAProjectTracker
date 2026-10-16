@@ -63,22 +63,28 @@
             </CellTemplate>
         </TemplateColumn>
 
+        <TemplateColumn Title="Global Tracking">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @if (row.Kind == RowKind.Item && row.Root.IsGloballyTracked)
+                {
+                    <MudTooltip Text="Globally tracked">
+                        <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Success" Size="Size.Small" />
+                    </MudTooltip>
+                }
+                else if (row.Kind == RowKind.Item)
+                {
+                    <MudTooltip Text="Globally tracked">
+                        <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Error" Size="Size.Small" />
+                    </MudTooltip>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+
         <TemplateColumn Title="" CellStyle="min-width:140px">
             <CellTemplate>
                 @{ var row = context.Item; }
                 <MudToolBar Dense="true" Class="pa-0" Style="min-height:unset; background:transparent;">
-                    @if (row.Kind == RowKind.Item && row.Root.IsGloballyTracked)
-                    {
-                        <MudTooltip Text="Globally tracked">
-                            <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Success" Size="Size.Small" />
-                        </MudTooltip>
-                    }
-                    else if (row.Kind == RowKind.Item)
-                    {
-                        <MudTooltip Text="Globally tracked">
-                            <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Error" Size="Size.Small" />
-                        </MudTooltip>
-                    }
                     <MudTooltip Text="@(row.Kind == RowKind.Item ? "Add task" : "Add subtask")">
                         <MudIconButton Icon="@Icons.Material.Filled.PlaylistAdd" Color="Color.Primary" Size="Size.Small"
                                        OnClick="() => AddChild(row)" />
