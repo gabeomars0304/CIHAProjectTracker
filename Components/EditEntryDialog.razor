@@ -48,12 +48,13 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
                                    OnClick="PickTags">Tag</MudButton>
-                        @foreach (var name in _model.TagNames)
-                        {
-                            <MudChip T="string" Text="@name" Size="Size.Small"
-                                     Color="@TagColors.For(new ItemTag { Name = name })"
-                                     OnClose="() => _model.TagNames.Remove(name)" />
-                        }
+                            @foreach (var name in _model.TagNames)
+                            {
+                                var tag = TagFor(name);
+                                <MudChip T="string" Text="@name" Size="Size.Small"
+                                         Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
+                                         OnClose="() => _model.TagNames.Remove(name)" />
+                            }
                     </MudStack>
 
                     <MudSwitch T="bool" @bind-Value="_model.IsGloballyTracked" Color="Color.Success"
@@ -89,25 +90,29 @@
         Notifier.Changed += OnRemoteChange;
     }
 
+    private ItemTag TagFor(string name) =>
+        _known.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? new ItemTag { Name = name };
+
     public void Dispose() => Notifier.Changed -= OnRemoteChange;
 
-    // Someone saved something: did it touch the row we're editing?
+    //Someone saved something: did it touch the row we're editing?
     private void OnRemoteChange() => _ = InvokeAsync(async () =>
     {
         if (_model is null || _stale || _saving || _closed) return;
 
         var current = await Service.GetRowVersionAsync(IsItem, EntryId);
         if (current is null)
-            _model = null;                                           // deleted
+            _model = null;                                           //deleted
         else if (!current.AsSpan().SequenceEqual(_model.RowVersion))
-            _stale = true;                                           // changed
+            _stale = true;                                           //changed
 
         StateHasChanged();
     });
 
     private async Task LoadLatest()
     {
-        _model = await Service.GetEditModelAsync(IsItem, EntryId);   // null if it was deleted
+        _model = await Service.GetEditModelAsync(IsItem, EntryId);   //null if it was deleted
         _stale = false;
     }
 
@@ -116,7 +121,7 @@
         var current = await Service.GetRowVersionAsync(IsItem, EntryId);
         if (current is null) { _model = null; return; }
 
-        _model!.RowVersion = current;   // adopt the latest version so our values win
+        _model!.RowVersion = current;   //adopt the latest version so our values win
         _stale = false;
     }
 
@@ -159,7 +164,7 @@
         if (_model is null || string.IsNullOrWhiteSpace(_model.Title)) return;
         _model.Title = _model.Title.Trim();
 
-        _saving = true;   // also stops our own broadcast from flagging the dialog as stale
+        _saving = true;   //also stops our own broadcast from flagging the dialog as stale
         var result = await Service.SaveAsync(_model);
 
         if (result == SaveResult.Ok)
@@ -171,7 +176,7 @@
 
         _saving = false;
         if (result == SaveResult.Deleted) _model = null;
-        else _stale = true;   // lost a race: let the user choose
+        else _stale = true;   //lost a race: let the user choose
     }
 
     private void Cancel() => MudDialog.Cancel();

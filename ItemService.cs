@@ -14,21 +14,21 @@ public sealed class EditModel
     public DateTime? EndDate { get; set; }
     public bool IsCompleted { get; set; }
 
-    // items only
+    //items only
     public bool IsGloballyTracked { get; set; }
     public List<string> TagNames { get; set; } = [];
 }
 
 public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeNotifier notifier)
 {
-    // ---------- reads ----------
+    //---------- reads ----------
     public async Task<(List<TrackedItem> Items, List<ItemTag> Tags)> LoadAllAsync()
     {
         await using var db = await factory.CreateDbContextAsync();
         var tags = await db.Tags.OrderBy(t => t.Name).ToListAsync();
         var items = await db.Items.Include(i => i.Tags).OrderBy(i => i.Id).ToListAsync();
-        await db.Tasks.OrderBy(t => t.Id).ToListAsync();   // fix-up builds Tasks/SubTasks
-        return (items, tags);   // detached once the context is disposed, graph stays intact
+        await db.Tasks.OrderBy(t => t.Id).ToListAsync();   //fix-up builds Tasks/SubTasks
+        return (items, tags);   //detached once the context is disposed, graph stays intact
     }
 
     public async Task<EditModel?> GetEditModelAsync(bool isItem, int id)
@@ -77,7 +77,76 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             : await db.Tasks.Where(t => t.Id == id).Select(t => t.RowVersion).FirstOrDefaultAsync();
     }
 
-    // ---------- writes ----------
+    //Tags creation/deletion
+    public async Task<List<ItemTag>> GetTagsAsync()
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        return await db.Tags.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+    }
+
+    public async Task<int> CountTagUsageAsync(int tagId)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        return await db.Tags.Where(t => t.Id == tagId).SelectMany(t => t.Items).CountAsync();
+    }
+
+    //Creates the tag, or return the existing one if the name is already taken
+    public async Task<ItemTag> CreateTagAsync(string name, string? colorHex = null)
+    {
+        name = name.Trim();
+        if (colorHex is not null && !System.Text.RegularExpressions.Regex.IsMatch(colorHex, "^#[0-9A-Fa-f]{6}$"))
+            colorHex = null;
+
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            //SQL Server's default collation makes this comparison case-insensitive
+            var existing = await db.Tags.AsNoTracking().FirstOrDefaultAsync(t => t.Name == name);
+            if (existing is not null) return existing;
+
+            var tag = new ItemTag { Name = name, ColorHex = colorHex };
+            db.Tags.Add(tag);
+            try
+            {
+                await db.SaveChangesAsync();
+                notifier.Publish();
+                return tag;
+            }
+            catch (DbUpdateException)
+            {
+                //Someone most likely created the same tag at the same time: fall through and read it
+            }
+        }
+
+        await using var db2 = await factory.CreateDbContextAsync();
+        return await db2.Tags.AsNoTracking().FirstAsync(t => t.Name == name);
+    }
+
+    //Deletes the tag and removes it from every item that had it.
+    public async Task DeleteTagAsync(int tagId)
+    {
+        for (var attempt =0; attempt < 3; attempt++)
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            var tag = await db.Tags.Include(t => t.Items).FirstOrDefaultAsync(t => t.Id == tagId);
+            if (tag is null) return;    //Deleted by someone else
+
+            //Touch each affected item sot its RowVersion changes. Anyone with that item open
+            //in the edit dialog gets the "Changed by someone else" banner instead of
+            //silently re-creating the tag when they save.
+            foreach (var item in tag.Items)
+                db.Entry(item).Property(i => i.Title).IsModified = true;
+            db.Tags.Remove(tag);    //join rows are removed by the cascade
+
+            try
+            {
+                await db.SaveChangesAsync();
+                notifier.Publish();
+                return;
+            } catch (DbUpdateConcurrencyException) { /* an item changed mid-delete: retry with fresh data */ }
+        }
+    }
+
+    //---------- writes ----------
     public async Task<SaveResult> SaveAsync(EditModel m)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -89,7 +158,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             var item = items.FirstOrDefault(i => i.Id == m.Id);
             if (item is null) return SaveResult.Deleted;
 
-            // Make EF check against the version the user started from, not the one just loaded
+            //Make EF check against the version the user started from, not the one just loaded
             db.Entry(item).Property(i => i.RowVersion).OriginalValue = m.RowVersion;
 
             var wasCompleted = item.IsCompleted;
@@ -121,8 +190,8 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
 
             if (wasCompleted != m.IsCompleted)
             {
-                TaskDates.Apply(task, m.IsCompleted, m.EndDate);   // cascades to subtasks
-                if (!m.IsCompleted) task.EndDate = m.EndDate;      // keep a future date the user chose
+                TaskDates.Apply(task, m.IsCompleted, m.EndDate);   //cascades to subtasks
+                if (!m.IsCompleted) task.EndDate = m.EndDate;      //keep a future date the user chose
             }
         }
 
@@ -130,16 +199,22 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         return await TrySaveAsync(db);
     }
 
-    public async Task AddItemAsync(string title, DateTime? start, IEnumerable<string> tagNames, bool tracked)
+    public async Task AddItemAsync(string title, string? description, DateTime? start, IEnumerable<string> tagNames, bool tracked)
     {
         await using var db = await factory.CreateDbContextAsync();
-        var item = new TrackedItem { Title = title, StartDate = start, IsGloballyTracked = tracked };
+        var item = new TrackedItem
+        {
+            Title = title,
+            Description = description ?? string.Empty,
+            StartDate = start,
+            IsGloballyTracked = tracked
+        };
         db.Items.Add(item);
         await SyncTagsAsync(db, item, tagNames.ToList());
         await TrySaveAsync(db);
     }
 
-    public async Task AddTaskAsync(int? itemId, int? parentTaskId, string title, DateTime? start)
+    public async Task AddTaskAsync(int? itemId, int? parentTaskId, string title, string? description, DateTime? start)
     {
         await using var db = await factory.CreateDbContextAsync();
         var items = await db.Items.ToListAsync();
@@ -148,12 +223,13 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         db.Tasks.Add(new ItemTask
         {
             Title = title,
+            Description = description ?? string.Empty,
             StartDate = start,
             TrackedItemId = itemId,
             ParentId = parentTaskId
         });
 
-        RecomputeAll(items);   // a new unfinished child can un-complete its parents
+        RecomputeAll(items);   //a new unfinished child can un-complete its parents
         await TrySaveAsync(db);
     }
 
@@ -161,7 +237,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
     {
         await using var db = await factory.CreateDbContextAsync();
         var items = await db.Items.ToListAsync();
-        var tasks = await db.Tasks.ToListAsync();   // loaded so ClientCascade can delete subtasks
+        var tasks = await db.Tasks.ToListAsync();   //loaded so ClientCascade can delete subtasks
 
         if (isItem)
         {
@@ -186,7 +262,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         await TrySaveAsync(db);
     }
 
-    // ---------- helpers ----------
+    //---------- helpers ----------
     private async Task<SaveResult> TrySaveAsync(AppDbContext db)
     {
         try { await db.SaveChangesAsync(); }
@@ -214,7 +290,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         }
     }
 
-    // ---- unchanged ----
+    //---- unchanged ----
     private static void RecomputeAll(IEnumerable<TrackedItem> items)
     {
         foreach (var item in items) RecomputeItem(item);
