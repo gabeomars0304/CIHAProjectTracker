@@ -5,9 +5,9 @@
             <MudTextField Label="@Label" @bind-Value="title" Variant="Variant.Outlined"
                           Immediate="true" AutoFocus="true" OnKeyDown="KeyDown" />
             <MudTextField Label="Description" @bind-Value="description" Variant="Variant.Outlined"
-                          Lines="3" AutoGrow="true" />
+                          Sizing="InputSizing.Auto" MaxLines="15" />
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
-                           Variant="Variant.Outlined" />
+                          Variant="Variant.Outlined" />
 
             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             @if (ShowTags)
