@@ -30,7 +30,7 @@
                 <MudTextField Label="Title" @bind-Value="_model.Title" Variant="Variant.Outlined"
                               Immediate="true" AutoFocus="true" />
                 <MudTextField Label="Description" @bind-Value="_model.Description" Variant="Variant.Outlined"
-                              Lines="3" AutoGrow="true" />
+                              Sizing="InputSizing.Auto" MaxLines="15" />
 
                 <MudStack Row="true">
                     <MudDatePicker Label="Start Date" @bind-Date="_model.StartDate" Editable="true"
