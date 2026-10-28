@@ -58,7 +58,7 @@
                 {
                     <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small" Color="@TagColors.For(tag)"
                              Variant="@(row.Kind == RowKind.Item ? Variant.Filled : Variant.Text)"
-                             Style="@(row.Kind == RowKind.Item ? "" : "opacity:0.6")" />
+                             Style="@(TagColors.Style(tag) + (row.Kind == RowKind.Item ? "" : "opacity:0.6"))" />
                 }
             </CellTemplate>
         </TemplateColumn>
@@ -100,7 +100,7 @@
 </MudDataGrid>
 
 @code {
-    // ---------- row model ----------
+    //---------- row model ----------
     private enum RowKind { Item, Task }
 
     private sealed class GridRow
@@ -113,13 +113,13 @@
         public object Owner { get; init; } = default!;
     }
 
-    // ---------- state ----------
+    //---------- state ----------
     private List<TrackedItem> items = [];
     private List<GridRow> rows = [];
     private List<ItemTag> knownTags = [];
     private bool loading, reloadQueued, disposed;
 
-    // Keyed by ID, not object reference: every reload creates new entity instances.
+    //Keyed by ID, not object reference: every reload creates new entity instances.
     private readonly HashSet<string> expanded = [];
 
     private static string Key(object node) => node switch
@@ -129,7 +129,7 @@
         _ => throw new ArgumentException("Unknown node")
     };
 
-    // ---------- lifecycle ----------
+    //---------- lifecycle ----------
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -142,7 +142,7 @@
         Notifier.Changed -= OnChanged;
     }
 
-    // Coalesces bursts: if a reload is running, run exactly one more afterwards.
+    //Coalesces bursts: if a reload is running, run exactly one more afterwards.
     private async Task LoadAsync()
     {
         if (loading) { reloadQueued = true; return; }
@@ -171,7 +171,7 @@
         catch (Exception) { /* circuit may be gone; ignore */ }
     });
 
-    // ---------- flattening ----------
+    //---------- flattening ----------
     private void Rebuild() => rows = BuildRows().ToList();
 
     private IEnumerable<GridRow> BuildRows()
@@ -217,7 +217,7 @@
         "cursor:pointer;" + (row.Kind == RowKind.Item
             ? "background: var(--mud-palette-background-gray); font-weight: 500;" : "");
 
-    // ---------- progress ----------
+    //---------- progress ----------
     private RenderFragment ProgressCircle(int percent) => __builder =>
     {
         <MudProgressCircular Rounded="true" Value="percent" Color="GetProgressColor(percent)">
@@ -270,7 +270,7 @@
         return total == 0 ? 0 : (int)Math.Round(100.0 * completed / total);
     }
 
-    // ---------- editing ----------
+    //---------- editing ----------
     private Task OnRowClick(DataGridRowClickEventArgs<GridRow> e) => OpenEditor(e.Item);
 
     private async Task OpenEditor(GridRow row)
@@ -283,12 +283,12 @@
             { x => x.KnownTags, knownTags }
         };
 
-        // The result isn't needed: a successful save broadcasts and this page reloads.
+        //The result isn't needed: a successful save broadcasts and this page reloads.
         await DialogService.ShowAsync<EditEntryDialog>(isItem ? "Edit item" : "Edit task", parameters,
             new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
     }
 
-    // ---------- add / delete ----------
+    //---------- add / delete ----------
     private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false, bool showGlobalTracking = false)
     {
         var parameters = new DialogParameters<AddEntryDialog>
@@ -311,8 +311,8 @@
         var entry = await PromptAsync("Add item", "Item title", showTags: true, showGlobalTracking: true);
         if (entry is null) return;
 
-        await Service.AddItemAsync(entry.Title, entry.StartDate,
-                                   entry.Tags.Select(t => t.Name), entry.GlobalTracking);
+        await Service.AddItemAsync(entry.Title, entry.Description, entry.StartDate,
+            entry.Tags.Select(t => t.Name), entry.GlobalTracking);
     }
 
     private async Task AddChild(GridRow row)
@@ -322,10 +322,10 @@
                                       isItem ? "Task title" : "Subtask title");
         if (entry is null) return;
 
-        expanded.Add(Key(row.Owner));   // so the new child is visible after the reload
+        expanded.Add(Key(row.Owner));   //so the new child is visible after the reload
         await Service.AddTaskAsync(isItem ? row.Root.Id : null,
-                                   isItem ? null : row.Task!.Id,
-                                   entry.Title, entry.StartDate);
+            isItem ? null : row.Task!.Id,
+            entry.Title, entry.Description, entry.StartDate);
     }
 
     private async Task DeleteRow(GridRow row)

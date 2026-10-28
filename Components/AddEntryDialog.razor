@@ -18,15 +18,15 @@
             @foreach (var tag in tags)
             {
                 <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                         Color="@TagColors.For(tag)"
-                         OnClose="() => tags.Remove(tag)" />
+                        Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
+                        OnClose="() => tags.Remove(tag)" />
             }
             </MudStack>
             }
             <MudSpacer />
             @if (ShowGlobalTracking)
             {
-                <MudSwitch T="bool" @bind-Toggled="globalTrackingOn" Color="Color.Success"
+                <MudSwitch T="bool" @bind-Value="globalTrackingOn" Color="Color.Success"
                         Label="Track Globally"/>
             }
         </MudStack>
@@ -85,7 +85,7 @@
 
         if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
         {
-            localKnown.AddRange(r.Created);   // so a second open still sees them
+            localKnown.AddRange(r.Created);   //so a second open still sees them
             tags = r.Selected;
         }
     }

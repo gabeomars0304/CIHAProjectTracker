@@ -1,24 +1,42 @@
-﻿<MudDialog>
+﻿@implements IDisposable
+@inject ItemService Service
+@inject ChangeNotifier Notifier
+@inject IDialogService DialogService
+@using MudBlazor.Utilities
+
+<MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
             <MudText Typo="Typo.subtitle2">Select tag</MudText>
 
-                @if (_allTags.Count == 0)
-                {
-                     <MudText Color="Color.Secondary">No tags yet. Create one below.</MudText>
-                }
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_allTags.Count == 0)
+            {
+                <MudText Color="Color.Secondary">No tags yet. Create one below.</MudText>
+            }
 
-                <MudChipSet T="ItemTag"
+            <MudChipSet T="ItemTag"
                         SelectionMode="SelectionMode.SingleSelection"
                         CheckMark="true"
                         @bind-SelectedValue="_selectedTag">
                 @foreach (var tag in _allTags)
                 {
-                    <MudChip @key="tag" T="ItemTag" Value="tag" Text="@tag.Name"
-                            Color="@TagColors.For(tag)"
-                            Variant="@(_selectedTag == tag ? Variant.Filled : Variant.Outlined)" />
+                    <MudChip @key="tag.Id" T="ItemTag" Value="tag" Text="@tag.Name"
+                             Color="@TagColors.For(tag)"
+                             Style="@(TagColors.FillStyle(tag) + (_selectedTag?.Id == tag.Id ? "" : "opacity:0.6;"))"
+                             OnClose="() => DeleteTag(tag)" />
                 }
             </MudChipSet>
+
+            @if (_allTags.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    The × deletes a tag for everyone and removes it from all items.
+                </MudText>
+            }
 
             <MudDivider />
 
@@ -27,6 +45,20 @@
                           Error="@(_error is not null)" ErrorText="@_error"
                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Add"
                           OnAdornmentClick="CreateTag" AdornmentAriaLabel="Create tag" />
+
+            <MudSwitch T="bool" @bind-Value="_customColor" Color="Color.Primary" Label="Custom color" />
+            @if (_customColor)
+            {
+                <MudColorPicker @bind-Value="_pickedColor" PickerVariant="PickerVariant.Static"
+                                ColorPickerView="ColorPickerView.Palette"
+                                DisableAlpha="true" DisableToolbar="true" />
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Uses the default color for this tag name (the preset colors for Project, Action Item and so on).
+                </MudText>
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -40,7 +72,7 @@
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
 
-    [Parameter] public List<ItemTag> ExistingTags { get; set; } = [];
+    [Parameter] public List<ItemTag> ExistingTags { get; set; } = [];   //ignored now; kept so callers compile
     [Parameter] public List<ItemTag> InitiallySelected { get; set; } = [];
 
     private List<ItemTag> _allTags = [];
@@ -48,42 +80,96 @@
     private string? _newName;
     private string? _error;
     private ItemTag? _selectedTag;
+    private bool _loading = true, _disposed;
+    private bool _customColor;
+    private MudColor _pickedColor = new("#594AE2");
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        _allTags = [.. ExistingTags];
+        _allTags = await Service.GetTagsAsync();
         _selectedTag = _allTags.FirstOrDefault(t => InitiallySelected.Any(s => Same(s.Name, t.Name)));
+        _loading = false;
+        Notifier.Changed += OnRemoteChange;
     }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Notifier.Changed -= OnRemoteChange;
+    }
+
+    //Someone created or deleted a tag (or anything else): refresh the list.
+    private void OnRemoteChange() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        try
+        {
+            var name = _selectedTag?.Name;
+            _allTags = await Service.GetTagsAsync();
+            //re-resolve by name: the reload produced new instances, and the tag may be gone
+            _selectedTag = name is null ? null : _allTags.FirstOrDefault(t => Same(t.Name, name));
+            StateHasChanged();
+        }
+        catch (Exception) { /* dialog already closed; ignore */ }
+    });
 
     private static bool Same(string a, string b) =>
         string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private void OnKeyDown(KeyboardEventArgs e)
+    private async Task OnKeyDown(KeyboardEventArgs e)
     {
         if (e.Key is "Enter" or "NumpadEnter")
-            CreateTag();
+            await CreateTag();
     }
 
-    private void CreateTag()
+    private async Task CreateTag()
     {
         var name = _newName?.Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
 
-        var existing = _allTags.FirstOrDefault(t => Same(t.Name, name));
-        if (existing is not null)
+        if (name.Length > 100)
         {
-            _selectedTag = existing;
-            _newName = null;
-            _error = null;
+            _error = "Tag names can be at most 100 characters.";
             return;
         }
 
-        var tag = new ItemTag { Name = name };
-        _allTags.Add(tag);
-        _created.Add(tag);
-        _selectedTag = tag;   // auto-select the new tag
+        var colorHex = _customColor ? _pickedColor.ToString(MudColorOutputFormats.Hex) : null;
+        var tag = await Service.CreateTagAsync(name, colorHex);
+
+        var inList = _allTags.FirstOrDefault(t => t.Id == tag.Id);
+        if (inList is null)
+        {
+            _allTags.Add(tag);
+            _created.Add(tag);
+            inList = tag;
+        }
+
+        _selectedTag = inList;
         _newName = null;
         _error = null;
+        _customColor = false;   //back to "default" for the next tag
+    }
+
+    private async Task DeleteTag(ItemTag tag)
+    {
+        var count = await Service.CountTagUsageAsync(tag.Id);
+
+        var message = count switch
+        {
+            0 => $"Delete the tag \"{tag.Name}\"? It isn't used by any tracked items.",
+            1 => $"\"{tag.Name}\" is used by 1 tracked item. Deleting it removes the tag from that item. This can't be undone.",
+            _ => $"\"{tag.Name}\" is used by {count} tracked items. Deleting it removes the tag from all of them. This can't be undone."
+        };
+
+        var yes = await DialogService.ShowMessageBoxAsync(
+            "Delete tag", message, yesText: "Delete", cancelText: "Cancel");
+        if (yes != true) return;
+
+        await Service.DeleteTagAsync(tag.Id);
+
+        _allTags.RemoveAll(t => t.Id == tag.Id);
+        _created.RemoveAll(t => t.Id == tag.Id);
+        if (_selectedTag?.Id == tag.Id) _selectedTag = null;
     }
 
     private void Submit() =>

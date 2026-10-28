@@ -28,6 +28,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(t => t.Name).HasMaxLength(100);
             e.HasIndex(t => t.Name).IsUnique();
+            e.Property(t => t.ColorHex).HasMaxLength(7);
             e.HasData(
                 new ItemTag { Id = 1, Name = "Project" },
                 new ItemTag { Id = 2, Name = "Action Item" },
