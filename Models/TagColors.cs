@@ -40,7 +40,7 @@ public class TagColors
 
         return palette is null
             ? ""
-            : $"background-color:var(--mud-palette-{palette});color:var(--mud-palette-{palette}-text);";
+            : $"background-color:var(--mud-palette-{palette});color:var(--mud-palette-{palette}-text);";        //Just so default reads better dependent on background
     }
 
     //Black or white text, whichever reads better on the background
