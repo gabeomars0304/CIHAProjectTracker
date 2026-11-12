@@ -1,0 +1,193 @@
+﻿@implements IDisposable
+@inject ItemService Service
+@inject ChangeNotifier Notifier
+@inject IDialogService DialogService
+@using MudBlazor.Utilities
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.subtitle2">Select group(s)</MudText>
+
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_allGroups.Count == 0)
+            {
+                <MudText Color="Color.Secondary">No groups yet. Create one below.</MudText>
+            }
+
+            <MudChipSet T="ItemGroup"
+                        SelectionMode="SelectionMode.MultiSelection"
+                        CheckMark="true"
+                        @bind-SelectedValues="_selectedGroups">
+                @foreach (var group in _allGroups)
+                {
+                    <MudChip @key="group.Id" T="ItemGroup" Value="group" Text="@group.Name"
+                             Color="@GroupColors.For(group)"
+                             Style="@(GroupColors.FillStyle(group) + (IsSelected(group) ? "" : "opacity:0.6;"))"
+                             OnClose="() => DeleteGroup(group)" />
+                }
+            </MudChipSet>
+
+            @if (_allGroups.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    The x deletes a group for everyone and removes it from all items.
+                </MudText>
+            }
+
+            <MudDivider />
+
+            <MudTextField Label="New group" @bind-Value="_newName" Variant="Variant.Outlined"
+                          Immediate="true" OnKeyDown="OnKeyDown"
+                          Error="@(_error is not null)" ErrorText="@_error"
+                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Add"
+                          OnAdornmentClick="CreateGroup" AdornmentAriaLabel="Create group" />
+            <MudSwitch T="bool" @bind-Value="_customColor" Color="Color.Primary" Label="Custom color" />
+            @if(_customColor)
+            {
+                <MudColorPicker @bind-Value="_pickedColor"
+                                PickerVariant="PickerVariant.Static"
+                                ColorPickerMode="ColorPickerMode.HEX"
+                                ShowToolbar="false"
+                                ShowAlpha="false"
+                                ShowColorField="true"
+                                ShowSliders="true"
+                                ShowInputs="true"
+                                ShowPreview="true"
+                                ShowModeSwitch="false" />
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Uses the default color for this group name (gray).
+                </MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton OnClick="Submit" Color="Color.Primary" Variant="Variant.Filled">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    public sealed record GroupPickerResult(List<ItemGroup> Selected, List<ItemGroup> Created);
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public List<ItemGroup> ExistingGroups { get; set; } = [];
+    [Parameter] public List<ItemGroup> InitiallySelected { get; set; } = [];
+
+    private List<ItemGroup> _allGroups = [];
+    private readonly List<ItemGroup> _created = [];
+    private string? _newName;
+    private string? _error;
+    private bool _loading = true, _disposed;
+    private bool _customColor;
+    private MudColor _pickedColor = new("#594AE2");
+    private IReadOnlyCollection<ItemGroup>? _selectedGroups = [];
+
+    private bool IsSelected(ItemGroup g) =>
+        _selectedGroups?.Any(s => s.Id == g.Id) == true;
+
+    private void SetSelected(IEnumerable<ItemGroup> groups) =>
+        _selectedGroups = groups.ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allGroups = await Service.GetGroupsAsync();
+        SetSelected(_allGroups.Where(g => InitiallySelected.Any(s => Same(s.Name, g.Name))));
+        _loading = false;
+        Notifier.Changed += OnRemoteChange;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Notifier.Changed -= OnRemoteChange;
+    }
+
+    private void OnRemoteChange() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        try
+        {
+            var names = (_selectedGroups ?? []).Select(g => g.Name).ToList();
+            _allGroups = await Service.GetGroupsAsync();
+            SetSelected(_allGroups.Where(g => names.Any(n => Same(n, g.Name))));
+            StateHasChanged();
+        }
+        catch (Exception) { /* dialog already closed; ignore */ }
+    });
+
+    private static bool Same(string a, string b) =>
+        string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter")
+        {
+            await CreateGroup();
+        }
+    }
+
+    private async Task CreateGroup()
+    {
+        var name = _newName?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        if (name.Length > 100)
+        {
+            _error = "Group names can be at most 100 characters.";
+            return;
+        }
+
+        var colorHex = _customColor ? _pickedColor.ToString(MudColorOutputFormats.Hex) : null;
+        var group = await Service.CreateGroupAsync(name, colorHex);
+
+        var inList = _allGroups.FirstOrDefault(g => g.Id == group.Id);
+        if (inList is null)
+        {
+            _allGroups.Add(group);
+            _created.Add(group);
+            inList = group;
+        }
+
+        SetSelected((_selectedGroups ?? []).Append(inList)
+                    .GroupBy(g => g.Id).Select(g => g.First()));
+        _newName = null;
+        _error = null;
+        _customColor = false;
+    }
+
+    private async Task DeleteGroup(ItemGroup group)
+    {
+        var count = await Service.CountGroupUsageAsync(group.Id);
+
+        var message = count switch
+        {
+            0 => $"Delete the group \"{group.Name}\"? It isn't used by any tracked items.",
+            1 => $"\"{group.Name}\" is used by 1 tracked item. Deleting it removes the group from that item.",
+            _ => $"\"{group.Name}\" is used by {count} tracked items. Deleting it removes the group from all of them. This can't be undone."
+        };
+
+        var yes = await DialogService.ShowMessageBoxAsync(
+            "Delete group", message, yesText: "Delete", cancelText: "Cancel");
+        if (yes != true) return;
+
+        await Service.DeleteGroupAsync(group.Id);
+
+        _allGroups.RemoveAll(g => g.Id == group.Id);
+        _created.RemoveAll(g => g.Id == group.Id);
+        SetSelected((_selectedGroups ?? []).Where(g => g.Id != group.Id));
+    }
+
+    private void Submit() =>
+        MudDialog.Close(DialogResult.Ok(new GroupPickerResult(
+            (_selectedGroups ?? []).ToList(), _created)));
+
+    private void Cancel() => MudDialog.Cancel();
+}

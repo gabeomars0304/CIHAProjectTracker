@@ -5,6 +5,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TrackedItem> Items => Set<TrackedItem>();
     public DbSet<ItemTask> Tasks => Set<ItemTask>();
     public DbSet<ItemTag> Tags => Set<ItemTag>();
+    public DbSet<ItemGroup> Groups => Set<ItemGroup>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -34,6 +35,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 new ItemTag { Id = 2, Name = "Action Item" },
                 new ItemTag { Id = 3, Name = "Project On Hold" },
                 new ItemTag { Id = 4, Name = "Issues/Blockers" });
+        });
+
+        b.Entity<ItemGroup>(e =>
+        {
+            e.Property(t =>t.Name).HasMaxLength(100);
+            e.HasIndex(t =>t.Name).IsUnique();
+            e.Property(t => t.ColorHex).HasMaxLength(7);
         });
     }
 }

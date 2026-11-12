@@ -55,6 +55,16 @@
                                          Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
                                          OnClose="() => _model.TagNames.Remove(name)" />
                             }
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
+                                   OnClick="PickGroups">Group</MudButton>
+                            @foreach (var name in _model.GroupNames)
+                            {
+                                var group = GroupFor(name);
+                                <MudChip T="string" Text="@name" Size="Size.Small"
+                                         Color="@GroupColors.For(group)" Style="@GroupColors.Style(group)"
+                                         OnClose="() => _model.GroupNames.Remove(name)" />
+                            }
                     </MudStack>
 
                     <MudSwitch T="bool" @bind-Value="_model.IsGloballyTracked" Color="Color.Success"
@@ -77,14 +87,17 @@
     [Parameter] public bool IsItem { get; set; }
     [Parameter] public int EntryId { get; set; }
     [Parameter] public List<ItemTag> KnownTags { get; set; } = [];
+    [Parameter] public List<ItemGroup> KnownGroups { get; set; } = [];
 
     private EditModel? _model;
     private bool _loading = true, _stale, _saving, _closed;
     private List<ItemTag> _known = [];
+    private List<ItemGroup> _knownGroups = [];
 
     protected override async Task OnInitializedAsync()
     {
         _known = [.. KnownTags];
+        _knownGroups = [.. KnownGroups];
         _model = await Service.GetEditModelAsync(IsItem, EntryId);
         _loading = false;
         Notifier.Changed += OnRemoteChange;
@@ -93,6 +106,10 @@
     private ItemTag TagFor(string name) =>
         _known.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? new ItemTag { Name = name };
+
+    private ItemGroup GroupFor(string name) =>
+        _knownGroups.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? new ItemGroup { Name = name };
 
     public void Dispose() => Notifier.Changed -= OnRemoteChange;
 
@@ -156,6 +173,26 @@
         {
             _known.AddRange(r.Created);
             _model.TagNames = r.Selected.Select(t => t.Name).ToList();
+        }
+    }
+
+    private async Task PickGroups()
+    {
+        var selected = _model!.GroupNames.Select(n => new ItemGroup { Name = n }).ToList();
+        var parameters = new DialogParameters<AddGroupsDialog>
+        {
+            { x => x.ExistingGroups, _knownGroups },
+            { x => x.InitiallySelected, selected }
+        };
+
+        var dialog = await DialogService.ShowAsync<AddGroupsDialog>("Groups", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false, Data: AddGroupsDialog.GroupPickerResult r })
+        {
+            _knownGroups.AddRange(r.Created);
+            _model.GroupNames = r.Selected.Select(g => g.Name).ToList();
         }
     }
 

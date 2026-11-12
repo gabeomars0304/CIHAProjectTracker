@@ -49,9 +49,16 @@
             <MudSwitch T="bool" @bind-Value="_customColor" Color="Color.Primary" Label="Custom color" />
             @if (_customColor)
             {
-                <MudColorPicker @bind-Value="_pickedColor" PickerVariant="PickerVariant.Static"
-                                ColorPickerView="ColorPickerView.Palette"
-                                DisableAlpha="true" DisableToolbar="true" />
+                <MudColorPicker @bind-Value="_pickedColor"
+                                PickerVariant="PickerVariant.Static"
+                                ColorPickerMode="ColorPickerMode.HEX"
+                                ShowToolbar="false"
+                                ShowAlpha="false"
+                                ShowColorField="true"
+                                ShowSliders="true"
+                                ShowInputs="true"
+                                ShowPreview="true"
+                                ShowModeSwitch="false" />
             }
             else
             {

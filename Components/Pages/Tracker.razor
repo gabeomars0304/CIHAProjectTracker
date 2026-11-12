@@ -63,6 +63,18 @@
             </CellTemplate>
         </TemplateColumn>
 
+        <TemplateColumn Title="Group" CellStyle="min-width:170px">
+            <CellTemplate>
+                @{ var row = context.Item; }
+                @foreach (var group in row.Root.Groups)
+                {
+                    <MudChip T="ItemGroup" Text="@group.Name" Size="Size.Small" Color="@GroupColors.For(group)"
+                             Variant="@(row.Kind == RowKind.Item ? Variant.Filled : Variant.Text)"
+                             Style="@(GroupColors.Style(group) + (row.Kind == RowKind.Item ? "" : "opacity:0.6"))" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+
         <TemplateColumn Title="Global Tracking">
             <CellTemplate>
                 @{ var row = context.Item; }
@@ -74,7 +86,7 @@
                 }
                 else if (row.Kind == RowKind.Item)
                 {
-                    <MudTooltip Text="Globally tracked">
+                    <MudTooltip Text="Not globally tracked">
                         <MudIcon Icon="@Icons.Material.Filled.Radar" Color="Color.Error" Size="Size.Small" />
                     </MudTooltip>
                 }
@@ -117,6 +129,7 @@
     private List<TrackedItem> items = [];
     private List<GridRow> rows = [];
     private List<ItemTag> knownTags = [];
+    private List<ItemGroup> knownGroups = [];
     private bool loading, reloadQueued, disposed;
 
     //Keyed by ID, not object reference: every reload creates new entity instances.
@@ -153,7 +166,7 @@
             do
             {
                 reloadQueued = false;
-                (items, knownTags) = await Service.LoadAllAsync();
+                (items, knownTags, knownGroups) = await Service.LoadAllAsync();
                 Rebuild();
             } while (reloadQueued);
         }
@@ -280,7 +293,8 @@
         {
             { x => x.IsItem, isItem },
             { x => x.EntryId, isItem ? row.Root.Id : row.Task!.Id },
-            { x => x.KnownTags, knownTags }
+            { x => x.KnownTags, knownTags },
+            { x => x.KnownGroups, knownGroups}
         };
 
         //The result isn't needed: a successful save broadcasts and this page reloads.
@@ -289,15 +303,18 @@
     }
 
     //---------- add / delete ----------
-    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label, bool showTags = false, bool showGlobalTracking = false)
+    private async Task<AddEntryDialog.EntryResult?> PromptAsync(string heading, string label,
+    bool showTags = false, bool showGroup = false, bool showGlobalTracking = false)
     {
         var parameters = new DialogParameters<AddEntryDialog>
-        {
-            { x => x.Label, label },
-            { x => x.ShowTags, showTags },
-            { x => x.ShowGlobalTracking, showGlobalTracking },
-            { x => x.KnownTags, knownTags }
-        };
+    {
+        { x => x.Label, label },
+        { x => x.ShowTags, showTags },
+        { x => x.ShowGroup, showGroup },
+        { x => x.ShowGlobalTracking, showGlobalTracking },
+        { x => x.KnownTags, knownTags },
+        { x => x.KnownGroups, knownGroups }
+    };
         var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
 
         var dialog = await DialogService.ShowAsync<AddEntryDialog>(heading, parameters, options);
@@ -308,11 +325,12 @@
 
     private async Task AddItem()
     {
-        var entry = await PromptAsync("Add item", "Item title", showTags: true, showGlobalTracking: true);
+        var entry = await PromptAsync("Add item", "Item title",
+            showTags: true, showGroup: true, showGlobalTracking: true);
         if (entry is null) return;
 
         await Service.AddItemAsync(entry.Title, entry.Description, entry.StartDate,
-            entry.Tags.Select(t => t.Name), entry.GlobalTracking);
+            entry.Tags.Select(t => t.Name), entry.Groups.Select(g => g.Name), entry.GlobalTracking);
     }
 
     private async Task AddChild(GridRow row)

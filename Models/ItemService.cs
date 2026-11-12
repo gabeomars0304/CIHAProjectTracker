@@ -17,18 +17,24 @@ public sealed class EditModel
     //items only
     public bool IsGloballyTracked { get; set; }
     public List<string> TagNames { get; set; } = [];
+    public List<string> GroupNames { get; set; } = [];
 }
 
 public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeNotifier notifier)
 {
     //---------- reads ----------
-    public async Task<(List<TrackedItem> Items, List<ItemTag> Tags)> LoadAllAsync()
+    public async Task<(List<TrackedItem> Items, List<ItemTag> Tags, List<ItemGroup> Groups)> LoadAllAsync()
     {
         await using var db = await factory.CreateDbContextAsync();
         var tags = await db.Tags.OrderBy(t => t.Name).ToListAsync();
-        var items = await db.Items.Include(i => i.Tags).OrderBy(i => i.Id).ToListAsync();
+        var groups = await db.Groups.OrderBy(t => t.Name).ToListAsync();
+        var items = await db.Items
+            .Include(i => i.Tags)
+            .Include(i => i.Groups)
+            .OrderBy(i => i.Id)
+            .ToListAsync();
         await db.Tasks.OrderBy(t => t.Id).ToListAsync();   //fix-up builds Tasks/SubTasks
-        return (items, tags);   //detached once the context is disposed, graph stays intact
+        return (items, tags, groups);   //detached once the context is disposed, graph stays intact
     }
 
     public async Task<EditModel?> GetEditModelAsync(bool isItem, int id)
@@ -37,7 +43,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
 
         if (isItem)
         {
-            var item = await db.Items.AsNoTracking().Include(i => i.Tags)
+            var item = await db.Items.AsNoTracking().Include(i => i.Tags).Include(j => j.Groups)
                                .FirstOrDefaultAsync(i => i.Id == id);
             return item is null ? null : new EditModel
             {
@@ -50,7 +56,8 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
                 EndDate = item.EndDate,
                 IsCompleted = item.IsCompleted,
                 IsGloballyTracked = item.IsGloballyTracked,
-                TagNames = item.Tags.Select(tag => tag.Name).ToList()
+                TagNames = item.Tags.Select(tag => tag.Name).ToList(),
+                GroupNames = item.Groups.Select(group => group.Name).ToList()
             };
         }
 
@@ -77,7 +84,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             : await db.Tasks.Where(t => t.Id == id).Select(t => t.RowVersion).FirstOrDefaultAsync();
     }
 
-    //Tags creation/deletion
+    //Tags/Groups creation/deletion
     public async Task<List<ItemTag>> GetTagsAsync()
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -88,6 +95,18 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
     {
         await using var db = await factory.CreateDbContextAsync();
         return await db.Tags.Where(t => t.Id == tagId).SelectMany(t => t.Items).CountAsync();
+    }
+
+    public async Task<List<ItemGroup>> GetGroupsAsync()
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        return await db.Groups.AsNoTracking().OrderBy(g => g.Name).ToListAsync();
+    }
+
+    public async Task<int> CountGroupUsageAsync(int groupId)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        return await db.Groups.Where(g => g.Id == groupId).SelectMany(g => g.Items).CountAsync();
     }
 
     //Creates the tag, or return the existing one if the name is already taken
@@ -121,6 +140,37 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         return await db2.Tags.AsNoTracking().FirstAsync(t => t.Name == name);
     }
 
+    //Creates the group, or return the existing one if the name is already taken
+    public async Task<ItemGroup> CreateGroupAsync(string name, string? colorHex = null)
+    {
+        name = name.Trim();
+        if (colorHex is not null && !System.Text.RegularExpressions.Regex.IsMatch(colorHex, "^#[0-9A-Fa-f]{6}$"))
+            colorHex = null;
+
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            //SQL Server's default collation makes this comparison case-insensitive
+            var existing = await db.Groups.AsNoTracking().FirstOrDefaultAsync(t => t.Name == name);
+            if (existing is not null) return existing;
+
+            var group = new ItemGroup { Name = name, ColorHex = colorHex };
+            db.Groups.Add(group);
+            try
+            {
+                await db.SaveChangesAsync();
+                notifier.Publish();
+                return group;
+            }
+            catch (DbUpdateException)
+            {
+                //Someone most likely created the same tag at the same time: fall through and read it
+            }
+        }
+
+        await using var db2 = await factory.CreateDbContextAsync();
+        return await db2.Groups.AsNoTracking().FirstAsync(t => t.Name == name);
+    }
+
     //Deletes the tag and removes it from every item that had it.
     public async Task DeleteTagAsync(int tagId)
     {
@@ -146,11 +196,40 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         }
     }
 
+    //Deletes the group and removes it from every item that had it.
+    public async Task DeleteGroupAsync(int groupId)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            var group = await db.Groups.Include(t => t.Items).FirstOrDefaultAsync(t => t.Id == groupId);
+            if (group is null) return;    //Deleted by someone else
+
+            //Touch each affected item sot its RowVersion changes. Anyone with that item open
+            //in the edit dialog gets the "Changed by someone else" banner instead of
+            //silently re-creating the tag when they save.
+            foreach (var item in group.Items)
+                db.Entry(item).Property(i => i.Title).IsModified = true;
+            db.Groups.Remove(group);    //join rows are removed by the cascade
+
+            try
+            {
+                await db.SaveChangesAsync();
+                notifier.Publish();
+                return;
+            }
+            catch (DbUpdateConcurrencyException) { /* an item changed mid-delete: retry with fresh data */ }
+        }
+    }
+
     //---------- writes ----------
     public async Task<SaveResult> SaveAsync(EditModel m)
     {
         await using var db = await factory.CreateDbContextAsync();
-        var items = await db.Items.Include(i => i.Tags).ToListAsync();
+        var items = await db.Items
+            .Include(i => i.Tags)
+            .Include(i => i.Groups)
+            .ToListAsync();
         var tasks = await db.Tasks.ToListAsync();
 
         if (m.IsItem)
@@ -169,6 +248,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             item.IsCompleted = m.IsCompleted;
             item.IsGloballyTracked = m.IsGloballyTracked;
             await SyncTagsAsync(db, item, m.TagNames);
+            await SyncGroupsAsync(db, item, m.GroupNames);
 
             if (wasCompleted != m.IsCompleted)
                 foreach (var child in item.Tasks)
@@ -199,7 +279,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         return await TrySaveAsync(db);
     }
 
-    public async Task AddItemAsync(string title, string? description, DateTime? start, IEnumerable<string> tagNames, bool tracked)
+    public async Task AddItemAsync(string title, string? description, DateTime? start, IEnumerable<string> tagNames, IEnumerable<string> groupNames, bool tracked)
     {
         await using var db = await factory.CreateDbContextAsync();
         var item = new TrackedItem
@@ -211,6 +291,7 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         };
         db.Items.Add(item);
         await SyncTagsAsync(db, item, tagNames.ToList());
+        await SyncGroupsAsync(db, item, groupNames.ToList());
         await TrySaveAsync(db);
     }
 
@@ -287,6 +368,24 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
 
             item.Tags.Add(all.FirstOrDefault(tag => string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase))
                           ?? new ItemTag { Name = name });
+        }
+    }
+
+    private static async Task SyncGroupsAsync(AppDbContext db, TrackedItem item, List<string> names)
+    {
+        var wanted = names.Select(n => n.Trim()).Where(n => n.Length > 0)
+                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var all = await db.Groups.ToListAsync();
+
+        item.Groups.RemoveAll(group => !wanted.Contains(group.Name, StringComparer.OrdinalIgnoreCase));
+
+        foreach (var name in wanted)
+        {
+            if (item.Groups.Any(group => string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            item.Groups.Add(all.FirstOrDefault(group => string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase))
+                          ?? new ItemGroup { Name = name });
         }
     }
 
