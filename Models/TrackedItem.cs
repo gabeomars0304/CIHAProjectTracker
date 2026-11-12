@@ -12,6 +12,7 @@ public class TrackedItem
     public List<ItemTask> Tasks { get; set; } = [];
     public List<string> Notes { get; set; } = [];
     public List<ItemTag> Tags { get; set; } = [];
+    public List<ItemGroup> Groups { get; set; } = [];
     public bool IsGloballyTracked { get; set; } = false;
     public int PercentageComplete { get; set; } = 0;
     [Timestamp]

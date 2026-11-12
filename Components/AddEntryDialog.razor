@@ -7,29 +7,41 @@
             <MudTextField Label="Description" @bind-Value="description" Variant="Variant.Outlined"
                           Sizing="InputSizing.Auto" MaxLines="15" />
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
-                          Variant="Variant.Outlined" />
+                           Variant="Variant.Outlined" />
 
-            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             @if (ShowTags)
             {
-                <MudStack Row="true" AlignItems="AlignItems.Center">
-                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
-                        OnClick="AddTag">Tag</MudButton>
-            @foreach (var tag in tags)
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
+                               OnClick="AddTag">Tag</MudButton>
+                    @foreach (var tag in tags)
+                    {
+                        <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
+                                 Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
+                                 OnClose="() => tags.Remove(tag)" />
+                    }
+                </MudStack>
+            }
+
+            @if (ShowGroup)
             {
-                <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                        Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
-                        OnClose="() => tags.Remove(tag)" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
+                               OnClick="AddGroup">Group</MudButton>
+                    @foreach (var group in groups)
+                    {
+                        <MudChip T="ItemGroup" Text="@group.Name" Size="Size.Small"
+                                 Color="@GroupColors.For(group)" Style="@GroupColors.Style(group)"
+                                 OnClose="() => groups.Remove(group)" />
+                    }
+                </MudStack>
             }
-            </MudStack>
-            }
-            <MudSpacer />
+
             @if (ShowGlobalTracking)
             {
                 <MudSwitch T="bool" @bind-Value="globalTrackingOn" Color="Color.Success"
-                        Label="Track Globally"/>
+                           Label="Track Globally" />
             }
-        </MudStack>
         </MudStack>
     </DialogContent>
     <DialogActions>
@@ -40,12 +52,14 @@
 </MudDialog>
 
 @code {
-    public sealed record EntryResult(string Title, string? Description, DateTime? StartDate, List<ItemTag> Tags, bool GlobalTracking);
+    public sealed record EntryResult(string Title, string? Description, DateTime? StartDate, List<ItemTag> Tags, List<ItemGroup> Groups, bool GlobalTracking);
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public string Label { get; set; } = "Title";
     [Parameter] public List<ItemTag> KnownTags { get; set; } = [];
+    [Parameter] public List<ItemGroup> KnownGroups { get; set; } = [];
     [Parameter] public bool ShowTags { get; set; }
+    [Parameter] public bool ShowGroup { get; set; }
     [Parameter] public bool ShowGlobalTracking { get; set; }
 
     private string? title;
@@ -53,9 +67,15 @@
     private DateTime? startDate = DateTime.Today;
     private bool globalTrackingOn;
     private List<ItemTag> tags = [];
-    private List<ItemTag> localKnown = [];
+    private List<ItemTag> localKnownTags = [];
+    private List<ItemGroup> groups = [];
+    private List<ItemGroup> localKnownGroups = [];
 
-    protected override void OnInitialized() => localKnown = [.. KnownTags];
+    protected override void OnInitialized()
+    {
+        localKnownTags = [.. KnownTags];
+        localKnownGroups = [.. KnownGroups];
+    }
 
     private void KeyDown(KeyboardEventArgs e)
     {
@@ -66,7 +86,7 @@
     private void Submit()
     {
         if (string.IsNullOrWhiteSpace(title)) return;
-        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), description, startDate, tags, globalTrackingOn)));
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), description, startDate, tags, groups, globalTrackingOn)));
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -75,7 +95,7 @@
     {
         var parameters = new DialogParameters<AddTagDialog>
         {
-            { x => x.ExistingTags, localKnown },
+            { x => x.ExistingTags, localKnownTags },
             { x => x.InitiallySelected, tags }
         };
 
@@ -85,8 +105,25 @@
 
         if (result is { Canceled: false, Data: AddTagDialog.TagPickerResult r })
         {
-            localKnown.AddRange(r.Created);   //so a second open still sees them
+            localKnownTags.AddRange(r.Created);   //so a second open still sees them
             tags = r.Selected;
+        }
+    }
+    private async Task AddGroup()
+    {
+        var parameters = new DialogParameters<AddGroupsDialog>
+        {
+            { x => x.ExistingGroups, localKnownGroups },
+            { x => x.InitiallySelected, groups }
+        };
+
+        var dialog = await DialogService.ShowAsync<AddGroupsDialog>("Groups", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is {Canceled: false, Data: AddGroupsDialog.GroupPickerResult r})
+        {
+            localKnownGroups.AddRange(r.Created);
+            groups = r.Selected;
         }
     }
 }
