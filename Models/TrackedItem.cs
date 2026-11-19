@@ -9,6 +9,8 @@ public class TrackedItem
     public DateTime? EndDate { get; set; } = null;
     public string Status { get; set; } = String.Empty;
     public bool IsCompleted { get; set; } = false;
+    public bool IsManualProgress { get; set; } = false;
+    public int ManualPercent { get; set; }
     public List<ItemTask> Tasks { get; set; } = [];
     public List<string> Notes { get; set; } = [];
     public List<ItemTag> Tags { get; set; } = [];

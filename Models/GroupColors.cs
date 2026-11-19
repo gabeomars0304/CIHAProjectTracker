@@ -15,24 +15,7 @@ public class GroupColors
 
         return $"background-color:{hex};color:{Contrast(hex)};";
     }
-    public static string FillStyle(ItemGroup group)
-    {
-        var custom = Style(group);
-        if (custom != "") return custom;
-
-        var palette = group.Name.Trim().ToLowerInvariant() switch
-        {
-            "project" => "tertiary",
-            "action item" => "warning",
-            "project on hold" => "info",
-            "issues/blockers" => "error",
-            _ => null
-        };
-
-        return palette is null
-            ? ""
-            : $"background-color:var(--mud-palette-{palette});color:var(--mud-palette-{palette}-text);";        //Just so default reads better dependent on background
-    }
+    public static string FillStyle(ItemGroup group) => Style(group);
 
     //Black or white text, whichever reads better on the background
     private static string Contrast(string hex)

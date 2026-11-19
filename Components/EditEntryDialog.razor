@@ -42,35 +42,55 @@
                 <MudCheckBox T="bool" Value="_model.IsCompleted" ValueChanged="CompletedChanged"
                              Label="Completed" Color="Color.Primary" />
 
-                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudSwitch T="bool" Value="_model.IsManualProgress" ValueChanged="ManualToggled"
+                               Color="Color.Primary" Label="Manual progress" />
+                    @if (_model.IsManualProgress)
+                    {
+                        <MudSlider T="int" Value="_model.ManualPercent" ValueChanged="ManualPercentChanged"
+                                   Min="0" Max="100" Step="1" Color="Color.Primary" Style="flex:1" />
+                        <MudNumericField T="int" Value="_model.ManualPercent" ValueChanged="ManualPercentChanged"
+                                         Min="0" Max="100" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         HideSpinButtons="true" Adornment="Adornment.End" AdornmentText="%"
+                                         Style="width:110px" />
+                    }
+                </MudStack>
+                @if (_model.IsManualProgress)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        Progress is set by hand. Completion of any subtasks is ignored.
+                    </MudText>
+                }
+
                 @if (IsItem)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
                                    OnClick="PickTags">Tag</MudButton>
-                            @foreach (var name in _model.TagNames)
-                            {
-                                var tag = TagFor(name);
-                                <MudChip T="string" Text="@name" Size="Size.Small"
-                                         Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
-                                         OnClose="() => _model.TagNames.Remove(name)" />
-                            }
-                        <MudSpacer />
+                        @foreach (var name in _model.TagNames)
+                        {
+                            var tag = TagFor(name);
+                            <MudChip T="string" Text="@name" Size="Size.Small"
+                                     Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
+                                     OnClose="() => _model.TagNames.Remove(name)" />
+                        }
+                    </MudStack>
+
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
                                    OnClick="PickGroups">Group</MudButton>
-                            @foreach (var name in _model.GroupNames)
-                            {
-                                var group = GroupFor(name);
-                                <MudChip T="string" Text="@name" Size="Size.Small"
-                                         Color="@GroupColors.For(group)" Style="@GroupColors.Style(group)"
-                                         OnClose="() => _model.GroupNames.Remove(name)" />
-                            }
+                        @foreach (var name in _model.GroupNames)
+                        {
+                            var group = GroupFor(name);
+                            <MudChip T="string" Text="@name" Size="Size.Small"
+                                     Color="@GroupColors.For(group)" Style="@GroupColors.Style(group)"
+                                     OnClose="() => _model.GroupNames.Remove(name)" />
+                        }
                     </MudStack>
 
                     <MudSwitch T="bool" @bind-Value="_model.IsGloballyTracked" Color="Color.Success"
                                Label="Track Globally" />
                 }
-            </MudStack>
             </MudStack>
         }
     </DialogContent>
@@ -147,12 +167,19 @@
         _model!.IsCompleted = done;
         if (done) _model.EndDate ??= DateTime.Today;
         else _model.EndDate = null;
+
+        if (_model.IsManualProgress)
+        {
+            if (done) _model.ManualPercent = 100;
+            else if (_model.ManualPercent >= 100) _model.ManualPercent = 0;
+        }
     }
 
     private void EndDateChanged(DateTime? date)
     {
         _model!.EndDate = date;
-        if (date is { } end)
+        //Percentage decides completion, not the date.
+        if (!_model.IsManualProgress && date is { } end)
             _model.IsCompleted = end.Date <= DateTime.Today;
     }
 
@@ -217,4 +244,26 @@
     }
 
     private void Cancel() => MudDialog.Cancel();
+
+    private void ManualToggled(bool on)
+    {
+        _model!.IsManualProgress = on;
+
+        if (on)
+        {
+            if (_model.IsCompleted) _model.ManualPercent = 100;
+        }
+        else
+        {
+            _model.ManualPercent = 0;
+        }
+    }
+
+    private void ManualPercentChanged(int percent)
+    {
+        _model!.ManualPercent = Math.Clamp(percent, 0, 100);
+        var done = _model.ManualPercent >= 100;
+        if (done == _model.IsCompleted) return;
+        CompletedChanged(done);
+    }
 }

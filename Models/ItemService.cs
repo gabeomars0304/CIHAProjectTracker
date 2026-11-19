@@ -13,6 +13,8 @@ public sealed class EditModel
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public bool IsCompleted { get; set; }
+    public bool IsManualProgress { get; set; }
+    public int ManualPercent { get; set; }
 
     //items only
     public bool IsGloballyTracked { get; set; }
@@ -57,7 +59,9 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
                 IsCompleted = item.IsCompleted,
                 IsGloballyTracked = item.IsGloballyTracked,
                 TagNames = item.Tags.Select(tag => tag.Name).ToList(),
-                GroupNames = item.Groups.Select(group => group.Name).ToList()
+                GroupNames = item.Groups.Select(group => group.Name).ToList(),
+                IsManualProgress = item.IsManualProgress,
+                ManualPercent = item.ManualPercent
             };
         }
 
@@ -71,7 +75,9 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             Description = task.Description,
             StartDate = task.StartDate,
             EndDate = task.EndDate,
-            IsCompleted = task.IsCompleted
+            IsCompleted = task.IsCompleted,
+            IsManualProgress = task.IsManualProgress,
+            ManualPercent = task.ManualPercent
         };
     }
 
@@ -247,10 +253,13 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             item.EndDate = m.EndDate;
             item.IsCompleted = m.IsCompleted;
             item.IsGloballyTracked = m.IsGloballyTracked;
+            item.IsManualProgress = m.IsManualProgress;
+            item.ManualPercent = Math.Clamp(m.ManualPercent, 0, 100);
             await SyncTagsAsync(db, item, m.TagNames);
             await SyncGroupsAsync(db, item, m.GroupNames);
 
-            if (wasCompleted != m.IsCompleted)
+            //NOTE: manual mode means no cascade to children as this is now user defined.
+            if (wasCompleted != m.IsCompleted && !m.IsManualProgress)
                 foreach (var child in item.Tasks)
                     TaskDates.Apply(child, item.IsCompleted, item.EndDate);
         }
@@ -267,6 +276,8 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             task.StartDate = m.StartDate;
             task.EndDate = m.EndDate;
             task.IsCompleted = m.IsCompleted;
+            task.IsManualProgress = m.IsManualProgress;
+            task.ManualPercent = Math.Clamp(m.ManualPercent, 0, 100);
 
             if (wasCompleted != m.IsCompleted)
             {
@@ -279,15 +290,21 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         return await TrySaveAsync(db);
     }
 
-    public async Task AddItemAsync(string title, string? description, DateTime? start, IEnumerable<string> tagNames, IEnumerable<string> groupNames, bool tracked)
+    public async Task AddItemAsync(string title, string? description, DateTime? start, IEnumerable<string> tagNames, IEnumerable<string> groupNames, bool tracked,
+        bool manual = false, int percent = 0)
     {
+        percent = Math.Clamp(percent, 0, 100);
         await using var db = await factory.CreateDbContextAsync();
         var item = new TrackedItem
         {
             Title = title,
             Description = description ?? string.Empty,
             StartDate = start,
-            IsGloballyTracked = tracked
+            IsGloballyTracked = tracked,
+            IsManualProgress = manual,
+            ManualPercent = manual ? percent : 0,
+            IsCompleted = manual && percent >= 100,
+            EndDate = manual && percent >= 100 ? DateTime.Today : null
         };
         db.Items.Add(item);
         await SyncTagsAsync(db, item, tagNames.ToList());
@@ -295,8 +312,10 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         await TrySaveAsync(db);
     }
 
-    public async Task AddTaskAsync(int? itemId, int? parentTaskId, string title, string? description, DateTime? start)
+    public async Task AddTaskAsync(int? itemId, int? parentTaskId, string title, string? description, DateTime? start,
+        bool manual, int percent = 0)
     {
+        percent = Math.Clamp(percent, 0, 100);
         await using var db = await factory.CreateDbContextAsync();
         var items = await db.Items.ToListAsync();
         await db.Tasks.ToListAsync();
@@ -307,7 +326,11 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
             Description = description ?? string.Empty,
             StartDate = start,
             TrackedItemId = itemId,
-            ParentId = parentTaskId
+            ParentId = parentTaskId,
+            IsManualProgress = manual,
+            ManualPercent = manual ? percent : 0,
+            IsCompleted = manual && percent >= 100,
+            EndDate = manual && percent >= 100 ? DateTime.Today : null
         });
 
         RecomputeAll(items);   //a new unfinished child can un-complete its parents
@@ -403,6 +426,8 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         foreach (var sub in task.SubTasks)
             if (!RecomputeTaskStatus(sub)) allChildrenComplete = false;
 
+        if (task.IsManualProgress) return task.IsCompleted;     //Own status wins in this case
+
         TaskDates.SetDerivedStatus(task, allChildrenComplete, task.SubTasks.Max(s => s.EndDate));
         return allChildrenComplete;
     }
@@ -414,6 +439,8 @@ public sealed class ItemService(IDbContextFactory<AppDbContext> factory, ChangeN
         bool allComplete = true;
         foreach (var task in item.Tasks)
             if (!RecomputeTaskStatus(task)) allComplete = false;
+
+        if (item.IsManualProgress) return;      //Own status wins
 
         if (item.IsCompleted != allComplete)
         {
