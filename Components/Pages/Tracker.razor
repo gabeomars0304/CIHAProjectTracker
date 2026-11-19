@@ -247,12 +247,16 @@
         _ => Color.Success
     };
 
-    private static (int completed, int total) CountCompletion(ItemTask task)
+    private static (double completed, int total) CountCompletion(ItemTask task)
     {
+        if (task.IsManualProgress)
+            return (task.ManualPercent / 100.0, 1);   //one unit, partially done
+
         if (task.SubTasks.Count == 0)
             return (task.IsCompleted ? 1 : 0, 1);
 
-        int completed = 0, total = 0;
+        double completed = 0;
+        int total = 0;
         foreach (var sub in task.SubTasks)
         {
             var (c, t) = CountCompletion(sub);
@@ -270,10 +274,13 @@
 
     private static int GetItemProgressPercent(TrackedItem item)
     {
+        if (item.IsManualProgress) return item.ManualPercent;
+
         if (item.Tasks.Count == 0)
             return item.IsCompleted ? 100 : 0;
 
-        int completed = 0, total = 0;
+        double completed = 0;
+        int total = 0;
         foreach (var task in item.Tasks)
         {
             var (c, t) = CountCompletion(task);
@@ -330,7 +337,8 @@
         if (entry is null) return;
 
         await Service.AddItemAsync(entry.Title, entry.Description, entry.StartDate,
-            entry.Tags.Select(t => t.Name), entry.Groups.Select(g => g.Name), entry.GlobalTracking);
+            entry.Tags.Select(t => t.Name), entry.Groups.Select(g => g.Name), entry.GlobalTracking,
+            entry.Manual, entry.Percent);
     }
 
     private async Task AddChild(GridRow row)
@@ -343,7 +351,8 @@
         expanded.Add(Key(row.Owner));   //so the new child is visible after the reload
         await Service.AddTaskAsync(isItem ? row.Root.Id : null,
             isItem ? null : row.Task!.Id,
-            entry.Title, entry.Description, entry.StartDate);
+            entry.Title, entry.Description, entry.StartDate,
+            entry.Manual, entry.Percent);
     }
 
     private async Task DeleteRow(GridRow row)

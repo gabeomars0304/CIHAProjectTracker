@@ -144,6 +144,12 @@ namespace CIHAProjectTracker.Migrations
                     b.Property<bool>("IsCompleted")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsManualProgress")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ManualPercent")
+                        .HasColumnType("int");
+
                     b.PrimitiveCollection<string>("Notes")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -203,6 +209,12 @@ namespace CIHAProjectTracker.Migrations
 
                     b.Property<bool>("IsGloballyTracked")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsManualProgress")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ManualPercent")
+                        .HasColumnType("int");
 
                     b.PrimitiveCollection<string>("Notes")
                         .IsRequired()

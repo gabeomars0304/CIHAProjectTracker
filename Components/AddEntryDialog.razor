@@ -9,19 +9,21 @@
             <MudDatePicker Label="Start Date" @bind-Date="startDate" Editable="true"
                            Variant="Variant.Outlined" />
 
-            @if (ShowTags)
-            {
-                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Label"
-                               OnClick="AddTag">Tag</MudButton>
-                    @foreach (var tag in tags)
-                    {
-                        <MudChip T="ItemTag" Text="@tag.Name" Size="Size.Small"
-                                 Color="@TagColors.For(tag)" Style="@TagColors.Style(tag)"
-                                 OnClose="() => tags.Remove(tag)" />
-                    }
-                </MudStack>
-            }
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.NoWrap">
+                <MudSwitch T="bool" @bind-Value="manual" Color="Color.Primary" Label="Manual progress"
+                           Style="flex-shrink:0" />
+                @if (manual)
+                {
+                    <div style="flex:1 1 0; min-width:0">
+                        <MudSlider T="int" @bind-Value="percent" Min="0" Max="100" Step="1"
+                                   Color="Color.Primary" />
+                    </div>
+                    <MudNumericField T="int" @bind-Value="percent" Min="0" Max="100" Immediate="true"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true"
+                                     Adornment="Adornment.End" AdornmentText="%"
+                                     Style="width:110px; flex-shrink:0" />
+                }
+            </MudStack>
 
             @if (ShowGroup)
             {
@@ -52,7 +54,7 @@
 </MudDialog>
 
 @code {
-    public sealed record EntryResult(string Title, string? Description, DateTime? StartDate, List<ItemTag> Tags, List<ItemGroup> Groups, bool GlobalTracking);
+    public sealed record EntryResult(string Title, string? Description, DateTime? StartDate, List<ItemTag> Tags, List<ItemGroup> Groups, bool GlobalTracking, bool Manual, int Percent);
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public string Label { get; set; } = "Title";
@@ -66,6 +68,8 @@
     private string? description;
     private DateTime? startDate = DateTime.Today;
     private bool globalTrackingOn;
+    private bool manual;
+    private int percent;
     private List<ItemTag> tags = [];
     private List<ItemTag> localKnownTags = [];
     private List<ItemGroup> groups = [];
@@ -86,7 +90,7 @@
     private void Submit()
     {
         if (string.IsNullOrWhiteSpace(title)) return;
-        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), description, startDate, tags, groups, globalTrackingOn)));
+        MudDialog.Close(DialogResult.Ok(new EntryResult(title.Trim(), description, startDate, tags, groups, globalTrackingOn, manual, Math.Clamp(percent, 0, 100))));
     }
 
     private void Cancel() => MudDialog.Cancel();

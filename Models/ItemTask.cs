@@ -11,6 +11,8 @@ public class ItemTask
     public DateTime? EndDate { get; set; } = null;
     public string Status { get; set; } = string.Empty;
     public bool IsCompleted { get; set; } = false;
+    public bool IsManualProgress { get; set; } = false;
+    public int ManualPercent { get; set; }
     public List<ItemTask> SubTasks { get; set; } = [];
     public List<string> Notes { get; set; } = [];
     public int PercentageComplete { get; set; } = 0;
